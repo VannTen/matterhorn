@@ -448,7 +448,8 @@ setFocusWith updatePrev f onNoChange = do
     -- we'll end up clobbering things like tsRecentChannel.
     if newFocus /= oldFocus
        then do
-          mh $ invalidateCacheEntry $ ChannelSidebar tId
+          forM_ allChannelListGroupLabels
+            (mh . invalidateCacheEntry . ChannelSidebar tId)
           resetAutocomplete
           preChangeChannelCommon
           csCurrentTeam.tsFocus .= newZipper
@@ -495,7 +496,8 @@ loadLastChannelInput = do
 updateChannelListScroll :: MH ()
 updateChannelListScroll = do
     tId <- use csCurrentTeamId
-    mh $ vScrollToBeginning (viewportScroll $ ChannelList tId)
+    forM_ allChannelListGroupLabels $ \gr ->
+      mh $ vScrollToBeginning (viewportScroll $ ChannelGroup tId gr)
 
 preChangeChannelCommon :: MH ()
 preChangeChannelCommon = do
@@ -676,7 +678,8 @@ resetReturnChannel = do
       Nothing -> return ()
       Just _ -> do
           tId <- use csCurrentTeamId
-          mh $ invalidateCacheEntry $ ChannelSidebar tId
+          mapM_ (mh . invalidateCacheEntry . ChannelSidebar tId)
+            allChannelListGroupLabels
           csCurrentTeam.tsReturnChannel .= Nothing
 
 gotoReturnChannel :: MH ()
@@ -696,7 +699,8 @@ setReturnChannel = do
         tId <- use csCurrentTeamId
         cId <- use (csCurrentChannelId tId)
         csCurrentTeam.tsReturnChannel .= Just cId
-        mh $ invalidateCacheEntry $ ChannelSidebar tId
+        mapM_ (mh . invalidateCacheEntry . ChannelSidebar tId)
+          allChannelListGroupLabels
     Just _ -> return ()
 
 nextUnreadChannel :: MH ()

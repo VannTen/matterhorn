@@ -72,30 +72,22 @@ renderChannelListHeader st =
         unreadCount = sum $ (channelListGroupUnread . fst) <$> Z.toList (st^.csCurrentTeam.tsFocus)
 
 renderChannelList :: ChatState -> Widget Name
-renderChannelList st =
-    viewport (ChannelList tId) Vertical body
+renderChannelList st = vBox $ renderChannelListHeader st : body
     where
         myUsername_ = myUsername st
         channelName e = ClickableChannelListEntry $ channelListEntryChannelId  e
         renderEntry s e = clickable (channelName e) $
                           renderChannelListEntry myUsername_ $ mkChannelEntryData s e
-        tId = st^.csCurrentTeamId
         body = case st^.csCurrentTeam.tsMode of
             ChannelSelect ->
                 let zipper = st^.csCurrentTeam.tsChannelSelectState.channelSelectMatches
                     matches = if Z.isEmpty zipper
                               then [hCenter $ txt "No matches"]
-                              else (renderChannelListGroup st
-                                       (renderChannelSelectListEntry (Z.focus zipper)) <$>
-                                   Z.toList zipper)
-                in vBox $
-                   renderChannelListHeader st :
-                   matches
-            _ ->
-                cached (ChannelSidebar tId) $
-                vBox $
-                renderChannelListHeader st :
-                (renderChannelListGroup st renderEntry <$> Z.toList (st^.csCurrentTeam.tsFocus))
+                              else renderChannelListGroup st
+                                   (renderChannelSelectListEntry (Z.focus zipper)) <$>
+                                   Z.toList zipper
+                in matches
+            _ -> renderChannelListGroup st renderEntry <$> Z.toList (st^.csCurrentTeam.tsFocus)
 
 renderChannelListGroupHeading :: ChannelListGroup -> Widget Name
 renderChannelListGroupHeading g =
@@ -118,9 +110,20 @@ renderChannelListGroup :: ChatState
 renderChannelListGroup st renderEntry (group, es) =
     let heading = renderChannelListGroupHeading group
         entryWidgets = renderEntry st <$> es
+        groupLabel = channelListGroupLabel group
+        widgetNm = ChannelGroup (st^.csCurrentTeamId) groupLabel
     in if null entryWidgets
        then emptyWidget
-       else vBox (heading : entryWidgets)
+       else vBox (heading
+                  : [ -- cached (ChannelSidebar (st^.csCurrentTeamId) groupLabel) $
+
+                      --  TODO: caching is disabled ^^^ because it is
+                      --  currently not being properly invalidated
+                      --  when doing channel searches (M-g)
+
+                      viewport widgetNm Vertical $ vBox entryWidgets
+                    ])
+
 
 mkChannelEntryData :: ChatState
                    -> ChannelListEntry

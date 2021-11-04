@@ -69,7 +69,8 @@ updateTeamSidebar :: TeamId -> MH ()
 updateTeamSidebar tId = do
     -- Invalidate the cached sidebar rendering since we are about to
     -- change the underlying state
-    mh $ invalidateCacheEntry $ ChannelSidebar tId
+    forM_ allChannelListGroupLabels $ \gl ->
+      mh $ invalidateCacheEntry $ ChannelSidebar tId gl
 
     -- Get the currently-focused channel ID so we can compare after the
     -- zipper is rebuilt

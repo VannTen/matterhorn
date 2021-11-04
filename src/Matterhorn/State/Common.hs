@@ -135,7 +135,8 @@ addClientMessage msg = do
   csChannels %= modifyChannelById cid addCMsg
 
   mh $ invalidateCacheEntry $ ChannelMessages cid
-  mh $ invalidateCacheEntry $ ChannelSidebar tId
+  forM_ allChannelListGroupLabels $ \gl ->
+    mh $ invalidateCacheEntry $ ChannelSidebar tId gl
 
   let msgTy = case msg^.cmType of
         Error -> LogError

@@ -128,6 +128,7 @@ module Matterhorn.Types
   , mkChannelZipperList
   , ChannelListGroup(..)
   , ChannelListGroupLabel(..)
+  , allChannelListGroupLabels
   , nonDMChannelListGroupUnread
 
   , trimChannelSigil
@@ -463,7 +464,10 @@ data ChannelListGroupLabel =
     | ChannelGroupPrivateChannels
     | ChannelGroupFavoriteChannels
     | ChannelGroupDirectMessages
-    deriving (Eq)
+    deriving (Eq, Ord, Show, Bounded, Enum)
+
+allChannelListGroupLabels :: [ ChannelListGroupLabel ]
+allChannelListGroupLabels = [ minBound .. maxBound ]
 
 nonDMChannelListGroupUnread :: ChannelListGroup -> Int
 nonDMChannelListGroupUnread g =
@@ -836,7 +840,7 @@ favoriteChannelPreference ps cId = HM.lookup cId (_userPrefFavoriteChannelPrefs 
 data Name =
     ChannelMessages ChannelId
     | MessageInput TeamId
-    | ChannelList TeamId
+    | ChannelGroup TeamId ChannelListGroupLabel
     | HelpViewport
     | HelpText
     | ScriptHelpText
@@ -857,7 +861,7 @@ data Name =
     | ThemeListSearchResults TeamId
     | ViewMessageArea TeamId
     | ViewMessageReactionsArea TeamId
-    | ChannelSidebar TeamId
+    | ChannelSidebar TeamId ChannelListGroupLabel
     | ChannelSelectInput TeamId
     | AttachmentList TeamId
     | AttachmentFileBrowser TeamId
@@ -2318,7 +2322,8 @@ setUserStatus uId t = do
     csUsers %= modifyUserById uId (uiStatus .~ statusFromText t)
     cs <- use csChannels
     forM_ (allTeamIds cs) $ \tId ->
-        mh $ invalidateCacheEntry $ ChannelSidebar tId
+      forM_ allChannelListGroupLabels $ \gl ->
+      mh $ invalidateCacheEntry $ ChannelSidebar tId gl
 
 usernameForUserId :: UserId -> ChatState -> Maybe Text
 usernameForUserId uId st = _uiName <$> findUserById uId (st^.csUsers)
