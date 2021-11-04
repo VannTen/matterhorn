@@ -12,7 +12,7 @@ import           Brick
 import qualified Data.Text as T
 import           GHC.Exception ( fromException )
 import qualified Graphics.Vty as Vty
-import           Lens.Micro.Platform ( (.=), _2, singular, _Just )
+import           Lens.Micro.Platform ( (.=), (.~), _2, singular, _Just )
 import qualified System.IO.Error as IO
 
 import qualified Network.Mattermost.Endpoints as MM
@@ -50,7 +50,15 @@ import           Matterhorn.Events.EditNotifyPrefs
 import           Matterhorn.Events.Websocket
 
 onEvent :: ChatState -> BrickEvent Name MHEvent -> EventM Name (Next ChatState)
-onEvent st ev = runMHEvent st $ do
+onEvent st ev = do
+  let tId = st^.csCurrentTeamId
+      grpWidgets = ChannelGroup tId <$> allChannelListGroupLabels
+      vertSize w = fmap (snd . _vpSize) <$> lookupViewport w
+  -- get the height for each rendered channel list group widget
+  vszs <- catMaybes <$> mapM vertSize grpWidgets
+  -- get the total height available for channel list groups
+  let vsz = if null vszs then Nothing else Just $ sum vszs
+  runMHEvent (st & csCurrentTeam . tsChannelListVSize .~ vsz) $ do
     onBrickEvent ev
     doPendingUserFetches
     doPendingUserStatusFetches

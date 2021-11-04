@@ -147,6 +147,7 @@ module Matterhorn.Types
   , tsEditState
   , tsMessageSelect
   , tsTeam
+  , tsChannelListVSize
   , tsChannelSelectState
   , tsUrlList
   , tsViewedMessage
@@ -1593,6 +1594,8 @@ data TeamState =
               -- ^ The state of message selection mode.
               , _tsTeam :: Team
               -- ^ The team data.
+              , _tsChannelListVSize :: Maybe Int
+              -- ^ Last reported vertical rendering size of the channel list
               , _tsChannelSelectState :: ChannelSelectState
               -- ^ The state of the user's input and selection for
               -- channel selection mode.
@@ -1699,6 +1702,7 @@ newTeamState team chanList spellChecker =
                  , _tsFocus                    = chanList
                  , _tsEditState                = (emptyEditState tId) { _cedSpellChecker = spellChecker }
                  , _tsTeam                     = team
+                 , _tsChannelListVSize         = Nothing
                  , _tsUrlList                  = list (UrlList tId) mempty 2
                  , _tsPostListOverlay          = PostListOverlayState emptyDirSeq Nothing
                  , _tsUserListOverlay          = nullUserListOverlayState tId

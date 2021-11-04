@@ -24,6 +24,7 @@ import           Matterhorn.Prelude
 import           Brick
 import           Brick.Widgets.Border
 import           Brick.Widgets.Center (hCenter)
+import           Data.Bifunctor ( bimap )
 import qualified Data.Text as T
 import           Lens.Micro.Platform (non)
 
@@ -75,6 +76,10 @@ renderChannelList :: ChatState -> Widget Name
 renderChannelList st = vBox $ renderChannelListHeader st : body
     where
         myUsername_ = myUsername st
+        rndr renderEach zipper =
+          let l = Z.toList zipper
+              adj = chanGroupAdjuster st l
+          in renderChannelListGroup st adj renderEach <$> l
         channelName e = ClickableChannelListEntry $ channelListEntryChannelId  e
         renderEntry s e = clickable (channelName e) $
                           renderChannelListEntry myUsername_ $ mkChannelEntryData s e
@@ -83,11 +88,75 @@ renderChannelList st = vBox $ renderChannelListHeader st : body
                 let zipper = st^.csCurrentTeam.tsChannelSelectState.channelSelectMatches
                     matches = if Z.isEmpty zipper
                               then [hCenter $ txt "No matches"]
-                              else renderChannelListGroup st
-                                   (renderChannelSelectListEntry (Z.focus zipper)) <$>
-                                   Z.toList zipper
+                              else rndr
+                                   (renderChannelSelectListEntry (Z.focus zipper))
+                                   zipper
                 in matches
-            _ -> renderChannelListGroup st renderEntry <$> Z.toList (st^.csCurrentTeam.tsFocus)
+            _ -> rndr renderEntry $ st^.csCurrentTeam.tsFocus
+
+type ChanGroupAdjuster = [(Name, Widget Name -> Widget Name)]
+
+-- | The 'chanGroupAdjuster' function provides some heuristic logic
+-- that is designed to handle the vertical layout for the ChannelList
+-- bar.
+--
+--  * The layout is based on the vertical layout extent of the channel
+--    list area ('tsChannelListVSize') the *last* time it was
+--    rendered.  This means that the layout could be sub-optimal,
+--    especially just after a terminal window resize, although it's
+--    expected to self-correct after some updates.
+--
+--  * If the vertical layout extent is not known, no restrictions are
+--    placed on the channel group lists which means that the Brick
+--    VBox will treat them all as "Greedy" and split the vertical
+--    space equally; this is a reasonable fallback condition.
+--
+--  * The Public channels are always treated as "Greedy" to allow them
+--    to take up any space not needed for other groups.
+--
+--  * The worst-case for when the contents of all groups exceeds the
+--    available space is to allow each equal space.  The maximum
+--    amount of space used for all other groups should still leave the
+--    Public channel group with its minimum amount of space (vertical
+--    space / ngroups).
+--
+--  * By default the remaining non-Public group space is equally
+--    divided among all other groups, but if a group does not *need*
+--    the amount of space allocated to it, that space will be
+--    distributed to other groups to use.  When all groups do not need
+--    the amount of space allowed to them, the Public group will be
+--    allowed to grow greedily and consume their space.
+--
+--  * The minimum vertical size for each group is 2 entries.
+--
+--  * Only the groups that are constrained vertically will have a Name
+--    vLimit entry in the output; any channel group entry without an
+--    entry in this list will be layed out with default vertical
+--    consumption (i.e. "Greedy").
+--
+--  * This function makes an assumption that the Public group is
+--    present and should be greedy; it makes no assumptions about any
+--    other channel groups and is designed to work with any number of
+--    channel groups.
+
+chanGroupAdjuster :: ChatState -> [(ChannelListGroup, [e])] -> ChanGroupAdjuster
+chanGroupAdjuster st = case st^.csCurrentTeam.tsChannelListVSize of
+  Nothing -> const []
+  Just chansVSize -> \cglist ->
+    let numGroups = length cglist
+        isGreedy g = case channelListGroupLabel g of
+          ChannelGroupPublicChannels -> True
+          _ -> False
+        fixedChans = filter (not . isGreedy . fst) cglist
+        equalSz = chansVSize `div` numGroups
+        extra l = if l < equalSz then equalSz - l else 0
+        fixedExtraPer = sum ((extra . length . snd) <$> fixedChans) `div` (length fixedChans)
+        fixedGrpSz = min (equalSz + fixedExtraPer)
+        vLimFun gEnts = let n = length gEnts in vLimit (clamp 2 (fixedGrpSz n) n)
+        groupWidget = ChannelGroup (st^.csCurrentTeamId) . channelListGroupLabel
+        nameAndLim = bimap groupWidget vLimFun
+    in nameAndLim <$> fixedChans
+
 
 renderChannelListGroupHeading :: ChannelListGroup -> Widget Name
 renderChannelListGroupHeading g =
@@ -104,14 +173,18 @@ renderChannelListGroupHeading g =
     in hBorderWithLabel labelWidget
 
 renderChannelListGroup :: ChatState
+                       -> ChanGroupAdjuster
                        -> (ChatState -> e -> Widget Name)
                        -> (ChannelListGroup, [e])
                        -> Widget Name
-renderChannelListGroup st renderEntry (group, es) =
+renderChannelListGroup st adjWidgets renderEntry (group, es) =
     let heading = renderChannelListGroupHeading group
         entryWidgets = renderEntry st <$> es
         groupLabel = channelListGroupLabel group
         widgetNm = ChannelGroup (st^.csCurrentTeamId) groupLabel
+        adjust = case lookup widgetNm adjWidgets of
+                   Nothing -> id
+                   Just a -> a
     in if null entryWidgets
        then emptyWidget
        else vBox (heading
@@ -121,7 +194,7 @@ renderChannelListGroup st renderEntry (group, es) =
                       --  currently not being properly invalidated
                       --  when doing channel searches (M-g)
 
-                      viewport widgetNm Vertical $ vBox entryWidgets
+                      adjust $ viewport widgetNm Vertical $ vBox entryWidgets
                     ])
 
 
