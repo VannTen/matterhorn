@@ -3,7 +3,6 @@
 module Matterhorn.Command
   ( commandList
   , dispatchCommand
-  , printArgSpec
   )
 where
 
@@ -20,7 +19,6 @@ import qualified Network.Mattermost.Types as MM
 
 import           Matterhorn.State.Attachments
 import           Matterhorn.Connection ( connectWebsockets )
-import           Matterhorn.Constants ( normalChannelSigil )
 import           Matterhorn.HelpTopics
 import           Matterhorn.Scripts
 import           Matterhorn.State.Help ( showHelpScreen, showHelpBrowser )
@@ -56,18 +54,6 @@ unwordHead t =
   in if T.null w
        then Nothing
        else Just (w, T.dropWhile Char.isSpace rs)
-
-printArgSpec :: CmdArgs a -> Text
-printArgSpec NoArg = ""
-printArgSpec (LineArg ts) = "<" <> ts <> ">"
-printArgSpec (TokenArg t NoArg) = "<" <> t <> ">"
-printArgSpec (UserArg rs) = "<" <> addUserSigil "user" <> ">" <> addSpace (printArgSpec rs)
-printArgSpec (ChannelArg rs) = "<" <> normalChannelSigil <> "channel>" <> addSpace (printArgSpec rs)
-printArgSpec (TokenArg t rs) = "<" <> t <> ">" <> addSpace (printArgSpec rs)
-
-addSpace :: Text -> Text
-addSpace "" = ""
-addSpace t = " " <> t
 
 matchArgs :: CmdArgs a -> Text -> Either Text a
 matchArgs NoArg t = case unwordHead t of

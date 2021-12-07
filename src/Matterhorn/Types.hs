@@ -418,7 +418,7 @@ import           Network.Mattermost.Types
 import           Network.Mattermost.Types.Config
 import           Network.Mattermost.WebSocket ( WebsocketEvent, WebsocketActionResponse )
 
-import           Matterhorn.Constants ( normalChannelSigil )
+import           Matterhorn.Constants ( normalChannelSigil, userSigil )
 import           Matterhorn.InputHistory
 import           Matterhorn.Emoji
 import           Matterhorn.Types.Common
