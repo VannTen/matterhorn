@@ -6,6 +6,7 @@ module Matterhorn.State.MessageSelect
   , pinSelectedMessage
   , viewSelectedMessage
   , fillSelectedGap
+  , copyPostLink
   , yankSelectedMessageVerbatim
   , yankSelectedMessage
   , openSelectedMessageURLs
@@ -27,6 +28,7 @@ where
 import           Prelude ()
 import           Matterhorn.Prelude
 
+import           Brick ( invalidateCache )
 import           Brick.Widgets.Edit ( applyEdit )
 import           Data.Text.Zipper ( clearZipper, insertMany )
 import           Lens.Micro.Platform
@@ -39,7 +41,7 @@ import           Matterhorn.State.Common
 import           Matterhorn.State.Links
 import           Matterhorn.State.Messages
 import           Matterhorn.Types
-import           Matterhorn.Types.RichText ( findVerbatimChunk )
+import           Matterhorn.Types.RichText ( findVerbatimChunk, makePermalink )
 import           Matterhorn.Types.Common
 import           Matterhorn.Windows.ViewMessage
 
@@ -62,6 +64,11 @@ getSelectedMessage st
 
 beginMessageSelect :: MH ()
 beginMessageSelect = do
+    -- Invalidate the rendering cache since we cache messages to speed
+    -- up the selection UI responsiveness. (See Draw.Messages for
+    -- caching behavior.)
+    mh invalidateCache
+
     -- Get the number of messages in the current channel and set the
     -- currently selected message index to be the most recently received
     -- message that corresponds to a Post (i.e. exclude informative
@@ -105,6 +112,18 @@ viewSelectedMessage = do
     Just msg
       | not (isGap msg) -> viewMessage msg
     _        -> return ()
+
+copyPostLink :: MH ()
+copyPostLink = do
+  selected <- use (to getSelectedMessage)
+  case selected of
+    Just msg | isPostMessage msg -> do
+        tId <- use csCurrentTeamId
+        baseUrl <- getServerBaseUrl tId
+        let Just pId = messageIdPostId =<< _mMessageId msg
+        copyToClipboard $ makePermalink baseUrl pId
+        setMode Main
+    _ -> return ()
 
 fillSelectedGap :: MH ()
 fillSelectedGap = do

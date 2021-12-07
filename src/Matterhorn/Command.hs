@@ -18,8 +18,9 @@ import qualified Network.Mattermost.Endpoints as MM
 import qualified Network.Mattermost.Exceptions as MM
 import qualified Network.Mattermost.Types as MM
 
+import           Matterhorn.State.Attachments
 import           Matterhorn.Connection ( connectWebsockets )
-import           Matterhorn.Constants ( userSigil )
+import           Matterhorn.Constants ( normalChannelSigil )
 import           Matterhorn.HelpTopics
 import           Matterhorn.Scripts
 import           Matterhorn.State.Help ( showHelpScreen, showHelpBrowser )
@@ -55,6 +56,18 @@ unwordHead t =
   in if T.null w
        then Nothing
        else Just (w, T.dropWhile Char.isSpace rs)
+
+printArgSpec :: CmdArgs a -> Text
+printArgSpec NoArg = ""
+printArgSpec (LineArg ts) = "<" <> ts <> ">"
+printArgSpec (TokenArg t NoArg) = "<" <> t <> ">"
+printArgSpec (UserArg rs) = "<" <> addUserSigil "user" <> ">" <> addSpace (printArgSpec rs)
+printArgSpec (ChannelArg rs) = "<" <> normalChannelSigil <> "channel>" <> addSpace (printArgSpec rs)
+printArgSpec (TokenArg t rs) = "<" <> t <> ">" <> addSpace (printArgSpec rs)
+
+addSpace :: Text -> Text
+addSpace "" = ""
+addSpace t = " " <> t
 
 matchArgs :: CmdArgs a -> Text -> Either Text a
 matchArgs NoArg t = case unwordHead t of
@@ -187,7 +200,7 @@ commandList =
     (UserArg NoArg) $ \ (uname, ()) ->
         addUserByNameToCurrentChannel uname
 
-  , Cmd "remove-user" "Remove a user from the current channel"
+  , Cmd "remove" "Remove a user from the current channel"
     (UserArg NoArg) $ \ (uname, ()) ->
         removeUserFromCurrentChannel uname
 
@@ -199,6 +212,9 @@ commandList =
 
   , Cmd "message-preview" "Toggle preview of the current message" NoArg $ \_ ->
         toggleMessagePreview
+
+  , Cmd "toggle-truncate-verbatim-blocks" "Toggle truncation of verbatim and code blocks" NoArg $ \_ ->
+        toggleVerbatimBlockTruncation
 
   , Cmd "toggle-channel-list" "Toggle channel list visibility" NoArg $ \_ ->
         toggleChannelListVisibility
@@ -234,8 +250,8 @@ commandList =
   , Cmd "sh" "List the available shell scripts" NoArg $ \ () ->
         listScripts
 
-  , Cmd "group-msg" "Create a group chat"
-    (LineArg (userSigil <> "user [" <> userSigil <> "user ...]"))
+  , Cmd "group-create" "Create a group chat"
+    (LineArg (addUserSigil "user" <> " [" <> addUserSigil "user" <> " ...]"))
         createGroupChannel
 
   , Cmd "sh" "Run a prewritten shell script"
@@ -264,13 +280,19 @@ commandList =
 
   , Cmd "move-team-right" "Move the currently-selected team to the right in the team list" NoArg $ \_ ->
         moveCurrentTeamRight
+
+  , Cmd "attach" "Attach a given file without browsing" (LineArg "path") $
+        attachFileByPath
+
+  , Cmd "toggle-favorite" "Toggle the favorite status of the current channel" NoArg $ \_ ->
+        toggleChannelFavoriteStatus
   ]
 
 displayUsernameAttribute :: Text -> MH ()
 displayUsernameAttribute name = do
     let an = attrForUsername trimmed
         trimmed = trimUserSigil name
-    postInfoMessage $ "The attribute used for " <> userSigil <> trimmed <>
+    postInfoMessage $ "The attribute used for " <> addUserSigil trimmed <>
                       " is " <> (attrNameToConfig an)
 
 execMMCommand :: Text -> Text -> MH ()

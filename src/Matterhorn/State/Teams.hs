@@ -7,13 +7,14 @@ module Matterhorn.State.Teams
   , buildTeamState
   , moveCurrentTeamLeft
   , moveCurrentTeamRight
+  , setTeam
   )
 where
 
 import           Prelude ()
 import           Matterhorn.Prelude
 
-import           Brick.Main ( invalidateCache )
+import           Brick.Main ( invalidateCache, hScrollToBeginning, viewportScroll )
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import           Data.Time.Clock ( getCurrentTime )
@@ -45,11 +46,22 @@ nextTeam = setTeamFocusWith Z.right
 prevTeam :: MH ()
 prevTeam = setTeamFocusWith Z.left
 
+-- | Set the current team directly
+setTeam :: TeamId -> MH ()
+setTeam tId = setTeamFocusWith $ Z.findRight (== tId)
+
 -- | Change the selected team with the specified team zipper
 -- transformation. This function also takes care of book-keeping
 -- necessary during team switching.
 setTeamFocusWith :: (Z.Zipper () TeamId -> Z.Zipper () TeamId) -> MH ()
 setTeamFocusWith f = do
+    -- Before we leave this team to view another one, indicate that
+    -- we've viewed the current team's currently-selected channel so
+    -- that this team doesn't get left with an unread indicator once we
+    -- are looking at the other team. We do this when switching channels
+    -- within a team in the same way.
+    updateViewed True
+
     csTeamZipper %= f
     postChangeTeamCommon
 
@@ -58,6 +70,7 @@ postChangeTeamCommon :: MH ()
 postChangeTeamCommon = do
     updateViewed False
     fetchVisibleIfNeeded
+    mh $ hScrollToBeginning (viewportScroll TeamList)
 
 -- | Fetch the specified team and add it to the application state.
 --

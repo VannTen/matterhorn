@@ -8,7 +8,7 @@ import           Brick
 import           Brick.Widgets.Border
 import           Brick.Widgets.Border.Style
 import           Brick.Widgets.Center ( hCenter )
-import           Brick.Widgets.List ( listElements )
+import           Brick.Widgets.List ( listElements, listSelectedElement )
 import           Brick.Widgets.Edit ( editContentsL, renderEditor, getEditContents )
 import           Control.Arrow ( (>>>) )
 import           Data.Char ( isSpace, isPunctuation )
@@ -39,13 +39,14 @@ import           Matterhorn.Draw.Util
 import           Matterhorn.Draw.RichText
 import           Matterhorn.Events.Keybindings
 import           Matterhorn.Events.MessageSelect
+import           Matterhorn.Events.UrlSelect
 import           Matterhorn.State.MessageSelect
 import           Matterhorn.Themes
 import           Matterhorn.TimeUtils ( justAfter, justBefore )
 import           Matterhorn.Types
 import           Matterhorn.Types.Common ( sanitizeUserText )
 import           Matterhorn.Types.DirectionalSeq ( emptyDirSeq )
-import           Matterhorn.Types.RichText ( parseMarkdown, TeamBaseURL )
+import           Matterhorn.Types.RichText ( parseMarkdown, TeamBaseURL, Inline(EHyperlink, EUser) )
 import           Matterhorn.Types.KeyEvents
 import qualified Matterhorn.Zipper as Z
 
@@ -253,7 +254,7 @@ renderUserCommandBox st hs =
                 in hBox [ replyArrow
                         , addEllipsis $ renderMessage MessageData
                           { mdMessage           = msgWithoutParent
-                          , mdUserName          = msgWithoutParent^.mUser.to (nameForUserRef st)
+                          , mdUserName          = msgWithoutParent^.mUser.to (printableNameForUserRef st)
                           , mdParentMessage     = Nothing
                           , mdParentUserName    = Nothing
                           , mdHighlightSet      = hs
@@ -265,12 +266,15 @@ renderUserCommandBox st hs =
                           , mdShowReactions     = True
                           , mdMessageWidthLimit = Nothing
                           , mdMyUsername        = myUsername st
+                          , mdMyUserId          = myUserId st
                           , mdWrapNonhighlightedCodeBlocks = True
+                          , mdTruncateVerbatimBlocks = Nothing
                           }
                         ]
             _ -> emptyWidget
 
-        multiLineToggleKey = ppBinding $ getFirstDefaultBinding ToggleMultiLineEvent
+        kc = st^.csResources.crConfiguration.configUserKeysL
+        multiLineToggleKey = ppBinding $ firstActiveBinding kc ToggleMultiLineEvent
 
         commandBox = case st^.csCurrentTeam.tsEditState.cedEphemeral.eesMultiline of
             False ->
@@ -334,9 +338,12 @@ renderChannelHeader st hs chan =
         chanName = mkChannelName st (chan^.ccInfo)
         tId = st^.csCurrentTeamId
         baseUrl = serverBaseUrl st tId
+        clickableInlines i (EHyperlink u _) = Just $ ClickableURL ChannelTopic i $ LinkURL u
+        clickableInlines i (EUser n) = Just $ ClickableUsername ChannelTopic i n
+        clickableInlines _ _ = Nothing
 
     in renderText' (Just baseUrl) (myUsername st)
-         hs
+         hs (Just clickableInlines)
          (channelNameString <> maybeTopic)
 
 renderCurrentChannelDisplay :: ChatState -> HighlightSet -> Widget Name
@@ -369,8 +376,8 @@ renderCurrentChannelDisplay st hs = header <=> hBorder <=> messages
 
             let maxHeight = max (Vty.imageHeight $ statusBox^.imageL)
                                 (Vty.imageHeight $ channelHeaderResult^.imageL)
-                statusBoxWidget = Widget Fixed Fixed $ return statusBox
-                headerWidget = Widget Fixed Fixed $ return channelHeaderResult
+                statusBoxWidget = resultToWidget statusBox
+                headerWidget = resultToWidget channelHeaderResult
                 borderWidget = vLimit maxHeight vBorder
 
             render $ if st^.csCurrentTeam.tsMode == ChannelSelect
@@ -396,11 +403,14 @@ renderCurrentChannelDisplay st hs = header <=> hBorder <=> messages
 
     chatText = case st^.csCurrentTeam.tsMode of
         MessageSelect ->
+            freezeBorders $
             renderMessagesWithSelect (st^.csCurrentTeam.tsMessageSelect) channelMessages
         MessageSelectDeleteConfirm ->
+            freezeBorders $
             renderMessagesWithSelect (st^.csCurrentTeam.tsMessageSelect) channelMessages
         _ ->
             cached (ChannelMessages cId) $
+            freezeBorders $
             renderLastMessages st hs editCutoff $
             retrogradeMsgsWithThreadStates $
             reverseMessages channelMessages
@@ -517,24 +527,27 @@ teamList :: ChatState -> Widget Name
 teamList st =
     let curTid = st^.csCurrentTeamId
         z = st^.csTeamZipper
+        Just pos = Z.position z
         teams = (\tId -> st^.csTeam(tId)) <$> (concat $ snd <$> Z.toList z)
+        numTeams = length teams
         entries = mkEntry <$> teams
         mkEntry ts =
             let tId = teamId $ _tsTeam ts
                 unread = uCount > 0
                 uCount = unreadCount tId
+                tName  = ClickableTeamListEntry tId
             in (if tId == curTid
                    then visible . withDefAttr currentTeamAttr
                    else if unread
                         then withDefAttr unreadChannelAttr
                         else id) $
-               txt $
+               clickable tName $ txt $
                (T.strip $ sanitizeUserText $ teamDisplayName $ _tsTeam ts)
         unreadCount tId = sum $ fmap (nonDMChannelListGroupUnread . fst) $
                           Z.toList $ st^.csTeam(tId).tsFocus
-    in if length teams == 1
+    in if numTeams == 1
        then emptyWidget
-       else vBox [ hBox [ padRight (Pad 1) $ txt "Teams:"
+       else vBox [ hBox [ padRight (Pad 1) $ txt $ T.pack $ "Teams (" <> show (pos + 1) <> "/" <> show numTeams <> "):"
                         , vLimit 1 $ viewport TeamList Horizontal $
                           hBox $
                           intersperse (txt " ") entries
@@ -556,6 +569,36 @@ connectionLayer st =
                          withDefAttr errorMessageAttr $
                          border $ str msg
 
+urlSelectBottomBar :: ChatState -> Widget Name
+urlSelectBottomBar st =
+    case listSelectedElement $ st^.csCurrentTeam.tsUrlList of
+        Nothing -> hBorder
+        Just (_, (_, link)) ->
+            let options = [ ( isFile
+                            , ev SaveAttachmentEvent
+                            , "save attachment"
+                            )
+                          ]
+                ev = keyEventBindings st urlSelectKeybindings
+                isFile entry = case entry^.linkTarget of
+                    LinkFileId {} -> True
+                    _ -> False
+                optionList = if null usableOptions
+                             then txt "(no actions available for this link)"
+                             else hBox $ intersperse (txt " ") usableOptions
+                usableOptions = catMaybes $ mkOption <$> options
+                mkOption (f, k, desc) = if f link
+                                        then Just $ withDefAttr urlSelectStatusAttr (txt k) <+>
+                                                    txt (":" <> desc)
+                                        else Nothing
+            in hBox [ borderElem bsHorizontal
+                    , txt "["
+                    , txt "Options: "
+                    , optionList
+                    , txt "]"
+                    , hBorder
+                    ]
+
 messageSelectBottomBar :: ChatState -> Widget Name
 messageSelectBottomBar st =
     case getSelectedMessage st of
@@ -574,17 +617,8 @@ messageSelectBottomBar st =
                 hasURLs = numURLs > 0
                 openUrlsMsg = "open " <> (T.pack $ show numURLs) <> " URL" <> s
                 hasVerb = isJust (findVerbatimChunk (postMsg^.mText))
+                ev = keyEventBindings st messageSelectKeybindings
                 -- make sure these keybinding pieces are up-to-date!
-                ev e =
-                  let keyconf = st^.csResources.crConfiguration.configUserKeysL
-                      KeyHandlerMap keymap = messageSelectKeybindings keyconf
-                  in T.intercalate ","
-                       [ ppBinding (eventToBinding k)
-                       | KH { khKey     = k
-                            , khHandler = h
-                            } <- M.elems keymap
-                       , kehEventTrigger h == ByEvent e
-                       ]
                 options = [ ( not . isGap
                             , ev YankWholeMessageEvent
                             , "yank-all"
@@ -596,6 +630,10 @@ messageSelectBottomBar st =
                           , ( \m -> isFlaggable m && m^.mFlagged
                             , ev FlagMessageEvent
                             , "unflag"
+                            )
+                          , ( \m -> isPostMessage m
+                            , ev CopyPostLinkEvent
+                            , "copy-link"
                             )
                           , ( \m -> isPinnable m && not (m^.mPinned)
                             , ev PinMessageEvent
@@ -647,6 +685,30 @@ messageSelectBottomBar st =
                     , hBorder
                     ]
 
+-- | Resolve the specified key event into a pretty-printed
+-- representation of the active bindings for that event, using the
+-- specified key handler map builder. If the event has more than one
+-- active binding, the bindings are comma-delimited in the resulting
+-- string.
+keyEventBindings :: ChatState
+                 -- ^ The current application state
+                 -> (KeyConfig -> KeyHandlerMap)
+                 -- ^ The function to obtain the relevant key handler
+                 -- map
+                 -> KeyEvent
+                 -- ^ The key event to look up
+                 -> T.Text
+keyEventBindings st mkBindingsMap e =
+    let keyconf = st^.csResources.crConfiguration.configUserKeysL
+        KeyHandlerMap keymap = mkBindingsMap keyconf
+    in T.intercalate ","
+         [ ppBinding (eventToBinding k)
+         | KH { khKey     = k
+              , khHandler = h
+              } <- M.elems keymap
+         , kehEventTrigger h == ByEvent e
+         ]
+
 maybePreviewViewport :: TeamId -> Widget Name -> Widget Name
 maybePreviewViewport tId w =
     Widget Greedy Fixed $ do
@@ -655,7 +717,7 @@ maybePreviewViewport tId w =
             False -> return result
             True ->
                 render $ vLimit previewMaxHeight $ viewport (MessagePreviewViewport tId) Vertical $
-                         (Widget Fixed Fixed $ return result)
+                         (resultToWidget result)
 
 inputPreview :: ChatState -> HighlightSet -> Widget Name
 inputPreview st hs | not $ st^.csResources.crConfiguration.configShowMessagePreviewL = emptyWidget
@@ -688,9 +750,9 @@ inputPreview st hs | not $ st^.csResources.crConfiguration.configShowMessagePrev
                                   else prview pm $ getParentMessage st pm
                      prview m p = renderMessage MessageData
                                   { mdMessage           = m
-                                  , mdUserName          = m^.mUser.to (nameForUserRef st)
+                                  , mdUserName          = m^.mUser.to (printableNameForUserRef st)
                                   , mdParentMessage     = p
-                                  , mdParentUserName    = p >>= (^.mUser.to (nameForUserRef st))
+                                  , mdParentUserName    = p >>= (^.mUser.to (printableNameForUserRef st))
                                   , mdHighlightSet      = hs
                                   , mdEditThreshold     = Nothing
                                   , mdShowOlderEdits    = False
@@ -700,21 +762,25 @@ inputPreview st hs | not $ st^.csResources.crConfiguration.configShowMessagePrev
                                   , mdShowReactions     = True
                                   , mdMessageWidthLimit = Nothing
                                   , mdMyUsername        = myUsername st
+                                  , mdMyUserId          = myUserId st
                                   , mdWrapNonhighlightedCodeBlocks = True
+                                  , mdTruncateVerbatimBlocks = Nothing
                                   }
                  in (maybePreviewViewport tId msgPreview) <=>
                     hBorderWithLabel (withDefAttr clientEmphAttr $ str "[Preview ↑]")
 
 userInputArea :: ChatState -> HighlightSet -> Widget Name
 userInputArea st hs =
-    case st^.csCurrentTeam.tsMode of
+    let urlSelectInputArea = hCenter $ hBox [ txt "Press "
+                                            , withDefAttr clientEmphAttr $ txt "Enter"
+                                            , txt " to open the selected URL or "
+                                            , withDefAttr clientEmphAttr $ txt "Escape"
+                                            , txt " to cancel."
+                                            ]
+    in case st^.csCurrentTeam.tsMode of
         ChannelSelect -> renderChannelSelectPrompt st
-        UrlSelect     -> hCenter $ hBox [ txt "Press "
-                                        , withDefAttr clientEmphAttr $ txt "Enter"
-                                        , txt " to open the selected URL or "
-                                        , withDefAttr clientEmphAttr $ txt "Escape"
-                                        , txt " to cancel."
-                                        ]
+        UrlSelect     -> urlSelectInputArea
+        SaveAttachmentWindow {} -> urlSelectInputArea
         MessageSelectDeleteConfirm -> renderDeleteConfirm
         _             -> renderUserCommandBox st hs
 
@@ -748,10 +814,13 @@ mainInterface st =
              ]
     channelContents = case st^.csCurrentTeam.tsMode of
         UrlSelect -> renderUrlList st
+        SaveAttachmentWindow {} -> renderUrlList st
         _         -> maybeSubdue $ renderCurrentChannelDisplay st hs
 
     bottomBorder = case st^.csCurrentTeam.tsMode of
         MessageSelect -> messageSelectBottomBar st
+        UrlSelect -> urlSelectBottomBar st
+        SaveAttachmentWindow {} -> urlSelectBottomBar st
         _ -> maybeSubdue $ hBox
              [ showAttachmentCount
              , hBorder
@@ -759,6 +828,7 @@ mainInterface st =
              , showBusy
              ]
 
+    kc = st^.csResources.crConfiguration.configUserKeysL
     showAttachmentCount =
         let count = length $ listElements $ st^.csCurrentTeam.tsEditState.cedAttachmentList
         in if count == 0
@@ -768,19 +838,19 @@ mainInterface st =
                        txt $ "(" <> (T.pack $ show count) <> " attachment" <>
                              (if count == 1 then "" else "s") <> "; "
                      , withDefAttr clientEmphAttr $
-                       txt $ ppBinding (getFirstDefaultBinding ShowAttachmentListEvent)
+                       txt $ ppBinding (firstActiveBinding kc ShowAttachmentListEvent)
                      , txt " to manage)"
                      ]
 
     showTypingUsers =
-        let format = renderText' Nothing (myUsername st) hs
+        let format = renderText' Nothing (myUsername st) hs Nothing
         in case allTypingUsers (st^.csCurrentChannel.ccInfo.cdTypingUsers) of
             [] -> emptyWidget
             [uId] | Just un <- usernameForUserId uId st ->
-               format $ "[" <> userSigil <> un <> " is typing]"
+               format $ "[" <> addUserSigil un <> " is typing]"
             [uId1, uId2] | Just un1 <- usernameForUserId uId1 st
                          , Just un2 <- usernameForUserId uId2 st ->
-               format $ "[" <> userSigil <> un1 <> " and " <> userSigil <> un2 <> " are typing]"
+               format $ "[" <> addUserSigil un1 <> " and " <> addUserSigil un2 <> " are typing]"
             _ -> format "[several people are typing]"
 
     showBusy = case st^.csWorkerIsBusy of

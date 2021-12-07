@@ -10,6 +10,7 @@ module Matterhorn.Themes
   -- * Attribute names
   , currentUserAttr
   , timeAttr
+  , verbatimTruncateMessageAttr
   , channelHeaderAttr
   , channelListHeaderAttr
   , currentChannelNameAttr
@@ -21,6 +22,8 @@ module Matterhorn.Themes
   , codeAttr
   , emailAttr
   , emojiAttr
+  , reactionAttr
+  , myReactionAttr
   , channelNameAttr
   , clientMessageAttr
   , clientHeaderAttr
@@ -47,6 +50,7 @@ module Matterhorn.Themes
   , urlListSelectedAttr
   , messageSelectAttr
   , messageSelectStatusAttr
+  , urlSelectStatusAttr
   , misspellingAttr
   , editedMarkingAttr
   , editedRecentlyMarkingAttr
@@ -144,6 +148,9 @@ currentUserAttr = "currentUser"
 channelHeaderAttr :: AttrName
 channelHeaderAttr = "channelHeader"
 
+verbatimTruncateMessageAttr :: AttrName
+verbatimTruncateMessageAttr = "verbatimTruncateMessage"
+
 channelListHeaderAttr :: AttrName
 channelListHeaderAttr = "channelListSectionHeader"
 
@@ -189,6 +196,12 @@ emailAttr = "email"
 emojiAttr :: AttrName
 emojiAttr = "emoji"
 
+reactionAttr :: AttrName
+reactionAttr = "reaction"
+
+myReactionAttr :: AttrName
+myReactionAttr = reactionAttr <> "mine"
+
 clientMessageAttr :: AttrName
 clientMessageAttr = "clientMessage"
 
@@ -215,6 +228,9 @@ misspellingAttr = "misspelling"
 
 messageSelectStatusAttr :: AttrName
 messageSelectStatusAttr = "messageSelectStatus"
+
+urlSelectStatusAttr :: AttrName
+urlSelectStatusAttr = "urlSelectStatus"
 
 buttonAttr :: AttrName
 buttonAttr = "button"
@@ -255,7 +271,7 @@ lightColorTheme = InternalTheme name theme desc
         theme = newTheme def $ lightAttrs usernameColors16
         name = "builtin:light"
         def = black `on` white
-        desc = "A color theme for terminal windows with light background colors"
+        desc = "A 16-color theme for terminal windows with light background colors"
 
 lightColor256Theme :: InternalTheme
 lightColor256Theme = InternalTheme name theme desc
@@ -273,6 +289,7 @@ lightAttrs usernameColors =
        , (buttonFocusedAttr,                black `on` yellow)
        , (currentUserAttr,                  defAttr `withStyle` bold)
        , (channelHeaderAttr,                fg black)
+       , (verbatimTruncateMessageAttr,      fg blue)
        , (channelListHeaderAttr,            fg cyan)
        , (currentChannelNameAttr,           black `on` yellow `withStyle` bold)
        , (unreadChannelAttr,                black `on` cyan   `withStyle` bold)
@@ -282,6 +299,8 @@ lightAttrs usernameColors =
        , (emailAttr,                        fg yellow)
        , (codeAttr,                         fg magenta)
        , (emojiAttr,                        fg yellow)
+       , (reactionAttr,                     fg yellow)
+       , (myReactionAttr,                   fg yellow `withStyle` underline)
        , (channelNameAttr,                  fg blue)
        , (clientMessageAttr,                fg black)
        , (clientEmphAttr,                   fg black `withStyle` bold)
@@ -308,6 +327,7 @@ lightAttrs usernameColors =
        , (urlListSelectedAttr,              black `on` yellow)
        , (messageSelectAttr,                black `on` yellow)
        , (messageSelectStatusAttr,          fg black)
+       , (urlSelectStatusAttr,              fg black)
        , (misspellingAttr,                  fg red `withStyle` underline)
        , (editedMarkingAttr,                fg yellow)
        , (editedRecentlyMarkingAttr,        black `on` yellow)
@@ -334,6 +354,7 @@ darkAttrs usernameColors =
      , (buttonFocusedAttr,                black `on` yellow)
      , (currentUserAttr,                  defAttr `withStyle` bold)
      , (channelHeaderAttr,                fg white)
+     , (verbatimTruncateMessageAttr,      fg cyan)
      , (channelListHeaderAttr,            fg cyan)
      , (currentChannelNameAttr,           black `on` yellow `withStyle` bold)
      , (unreadChannelAttr,                black `on` cyan   `withStyle` bold)
@@ -343,6 +364,8 @@ darkAttrs usernameColors =
      , (emailAttr,                        fg yellow)
      , (codeAttr,                         fg magenta)
      , (emojiAttr,                        fg yellow)
+     , (reactionAttr,                     fg yellow)
+     , (myReactionAttr,                   fg yellow `withStyle` underline)
      , (channelNameAttr,                  fg cyan)
      , (pinnedMessageIndicatorAttr,       fg cyan `withStyle` bold)
      , (clientMessageAttr,                fg white)
@@ -369,6 +392,7 @@ darkAttrs usernameColors =
      , (urlListSelectedAttr,              black `on` yellow)
      , (messageSelectAttr,                black `on` yellow)
      , (messageSelectStatusAttr,          fg white)
+     , (urlSelectStatusAttr,              fg white)
      , (misspellingAttr,                  fg red `withStyle` underline)
      , (editedMarkingAttr,                fg yellow)
      , (editedRecentlyMarkingAttr,        black `on` yellow)
@@ -396,7 +420,7 @@ darkColorTheme = InternalTheme name theme desc
         theme = newTheme def $ darkAttrs usernameColors16
         name = "builtin:dark"
         def = defAttr
-        desc = "A color theme for terminal windows with dark background colors"
+        desc = "A 16-color theme for terminal windows with dark background colors"
 
 darkColor256Theme :: InternalTheme
 darkColor256Theme = InternalTheme name theme desc
@@ -575,6 +599,12 @@ themeDocs = ThemeDocumentation $ M.fromList $
     , ( emojiAttr
       , "A text emoji indication in a chat message"
       )
+    , ( reactionAttr
+      , "An emoji reaction on a chat message"
+      )
+    , ( myReactionAttr
+      , "An emoji reaction that the current user has posted on a chat message"
+      )
     , ( channelNameAttr
       , "A channel name in a chat message"
       )
@@ -658,6 +688,9 @@ themeDocs = ThemeDocumentation $ M.fromList $
       )
     , ( messageSelectStatusAttr
       , "Message selection: the message selection actions"
+      )
+    , ( urlSelectStatusAttr
+      , "Link selection: the message selection actions"
       )
     , ( misspellingAttr
       , "A misspelled word in the chat message editor"
@@ -811,6 +844,9 @@ themeDocs = ThemeDocumentation $ M.fromList $
       )
     , ( currentTeamAttr
       , "The currently-selected team"
+      )
+    , ( verbatimTruncateMessageAttr
+      , "Attribute for a message indicating that a verbatim or code block has been only partially displayed"
       )
     ] <> [ (usernameAttr i, T.pack $ "Username color " <> show i)
          | i <- [0..usernameColorHashBuckets-1]

@@ -31,21 +31,35 @@ import qualified Data.Text as T
 import qualified Graphics.Vty as V
 import qualified Skylighting.Core as Sky
 
-import           Matterhorn.Constants ( normalChannelSigil, userSigil, editMarking )
+import           Matterhorn.Constants ( normalChannelSigil, editMarking )
 import           Matterhorn.Draw.RichText.Flatten
 import           Matterhorn.Draw.RichText.Wrap
 import           Matterhorn.Themes
-import           Matterhorn.Types ( HighlightSet(..), emptyHSet )
+import           Matterhorn.Types ( HighlightSet(..), emptyHSet, SemEq(..)
+                                  , addUserSigil, resultToWidget )
 import           Matterhorn.Types.RichText
 
 
--- Cursor sentinel for tracking the user's cursor position in previews.
-cursorSentinel :: Char
-cursorSentinel = '‸'
-
--- Render markdown with username highlighting
-renderRichText :: Text -> HighlightSet -> Maybe Int -> Bool -> Blocks -> Widget a
-renderRichText curUser hSet w doWrap (Blocks bs) =
+-- | Render rich text.
+renderRichText :: SemEq a
+               => Text
+               -- ^ The username of the currently-authenticated user.
+               -> HighlightSet
+               -- ^ A highlight set for highlighting channel and
+               -- usernames and code blocks.
+               -> Maybe Int
+               -- ^ An optional maximum width.
+               -> Bool
+               -- ^ Whether to do line wrapping.
+               -> Maybe Int
+               -- ^ At what height to truncate long verbatim/code blocks
+               -> Maybe (Int -> Inline -> Maybe a)
+               -- ^ An optional function to build resource names for
+               -- clickable regions.
+               -> Blocks
+               -- ^ The content to render.
+               -> Widget a
+renderRichText curUser hSet w doWrap doVerbTrunc nameGen (Blocks bs) =
     runReader (do
               blocks <- mapM renderBlock (addBlankLines bs)
               return $ B.vBox $ toList blocks)
@@ -53,7 +67,31 @@ renderRichText curUser hSet w doWrap (Blocks bs) =
                        , drawHighlightSet = hSet
                        , drawLineWidth = w
                        , drawDoLineWrapping = doWrap
+                       , drawTruncateVerbatimBlocks = doVerbTrunc
+                       , drawNameGen = nameGen
                        })
+
+-- Render text to markdown without username highlighting, permalink
+-- detection, or clickable links
+renderText :: SemEq a => Text -> Widget a
+renderText txt = renderText' Nothing "" emptyHSet Nothing txt
+
+renderText' :: SemEq a
+            => Maybe TeamBaseURL
+            -- ^ An optional base URL against which to match post links.
+            -> Text
+            -- ^ The username of the currently-authenticated user.
+            -> HighlightSet
+            -- ^ A highlight set for highlighting channel and usernames.
+            -> Maybe (Int -> Inline -> Maybe a)
+            -- ^ An optional function to build resource names for
+            -- clickable regions.
+            -> Text
+            -- ^ The text to parse and then render as rich text.
+            -> Widget a
+renderText' baseUrl curUser hSet nameGen t =
+    renderRichText curUser hSet Nothing True Nothing nameGen $
+        parseMarkdown baseUrl t
 
 -- Add blank lines only between adjacent elements of the same type, to
 -- save space
@@ -66,16 +104,6 @@ addBlankLines = go' . viewl
             | otherwise         = a <| go b (viewl rs)
         go x EmptyL = S.singleton x
         blank = Para (Inlines $ S.singleton ESpace)
-
--- Render text to markdown without username highlighting or permalink
--- detection
-renderText :: Text -> Widget a
-renderText txt = renderText' Nothing "" emptyHSet txt
-
-renderText' :: Maybe TeamBaseURL -> Text -> HighlightSet -> Text -> Widget a
-renderText' baseUrl curUser hSet t =
-    renderRichText curUser hSet Nothing True $
-        parseMarkdown baseUrl t
 
 vBox :: F.Foldable f => f (Widget a) -> Widget a
 vBox = B.vBox . toList
@@ -90,16 +118,18 @@ maybeHLimit :: Maybe Int -> Widget a -> Widget a
 maybeHLimit Nothing w = w
 maybeHLimit (Just i) w = hLimit i w
 
-type M a = Reader DrawCfg a
+type M a b = Reader (DrawCfg b) a
 
-data DrawCfg =
+data DrawCfg a =
     DrawCfg { drawCurUser :: Text
             , drawHighlightSet :: HighlightSet
             , drawLineWidth :: Maybe Int
             , drawDoLineWrapping :: Bool
+            , drawTruncateVerbatimBlocks :: Maybe Int
+            , drawNameGen :: Maybe (Int -> Inline -> Maybe a)
             }
 
-renderBlock :: Block -> M (Widget a)
+renderBlock :: SemEq a => Block -> M (Widget a) a
 renderBlock (Table aligns headings body) = do
     headingWs <- mapM renderInlines headings
     bodyWs <- forM body $ mapM renderInlines
@@ -137,13 +167,29 @@ renderBlock (CodeBlock ci tx) = do
         mSyntax = do
             lang <- codeBlockLanguage ci
             Sky.lookupSyntax lang (hSyntaxMap hSet)
-    f tx
+    w <- f tx
+    trunc <- asks drawTruncateVerbatimBlocks
+    case trunc of
+        Nothing -> return w
+        Just maxHeight -> return $ maybeTruncVerbatim maxHeight w
 renderBlock (HTMLBlock t) = do
     w <- asks drawLineWidth
     return $ maybeHLimit w $ textWithCursor t
 renderBlock (HRule) = do
     w <- asks drawLineWidth
     return $ maybeHLimit w $ B.vLimit 1 (B.fill '*')
+
+maybeTruncVerbatim :: Int -> B.Widget n -> B.Widget n
+maybeTruncVerbatim maxHeight w =
+    Widget (B.hSize w) (B.vSize w) $ do
+        result <- render w
+        let h = V.imageHeight (result^.B.imageL)
+        if h > maxHeight
+           then render $ B.vBox [ B.vLimit maxHeight $ B.Widget B.Fixed B.Fixed $ return result
+                                , B.withDefAttr verbatimTruncateMessageAttr $
+                                  B.str $ "(Showing " <> show maxHeight <> " of " <> show h <> " lines)"
+                                ]
+           else return result
 
 quoteChar :: Char
 quoteChar = '>'
@@ -161,7 +207,7 @@ addQuoting w =
                           , B.Widget B.Fixed B.Fixed $ return childResult
                           ]
 
-renderCodeBlock :: Sky.SyntaxMap -> Sky.Syntax -> Text -> M (Widget a)
+renderCodeBlock :: Sky.SyntaxMap -> Sky.Syntax -> Text -> M (Widget a) b
 renderCodeBlock syntaxMap syntax tx = do
     let result = Sky.tokenize cfg syntax tx
         cfg = Sky.TokenizerConfig syntaxMap False
@@ -172,7 +218,7 @@ renderCodeBlock syntaxMap syntax tx = do
             return $ (B.txt $ "[" <> Sky.sName syntax <> "]") B.<=>
                      (padding <+> BS.renderRawSource textWithCursor tokLines)
 
-renderRawCodeBlock :: Text -> M (Widget a)
+renderRawCodeBlock :: Text -> M (Widget a) b
 renderRawCodeBlock tx = do
     doWrap <- asks drawDoLineWrapping
 
@@ -191,23 +237,24 @@ renderRawCodeBlock tx = do
             let textHeight = V.imageHeight $ renderedText^.imageL
                 padding = B.padLeftRight 1 (B.vLimit textHeight B.vBorder)
 
-            render $ padding <+> (Widget Fixed Fixed $ return renderedText)
+            render $ padding <+> (resultToWidget renderedText)
 
-renderInlines :: Inlines -> M (Widget a)
+renderInlines :: SemEq a => Inlines -> M (Widget a) a
 renderInlines es = do
     w <- asks drawLineWidth
     hSet <- asks drawHighlightSet
     curUser <- asks drawCurUser
+    nameGen <- asks drawNameGen
 
     return $ B.Widget B.Fixed B.Fixed $ do
         ctx <- B.getContext
         let width = fromMaybe (ctx^.B.availWidthL) w
             ws    = fmap (renderWrappedLine curUser) $
                     mconcat $
-                    (doLineWrapping width <$> (F.toList $ flattenInlineSeq hSet es))
+                    (doLineWrapping width <$> (F.toList $ flattenInlineSeq hSet nameGen es))
         B.render (vBox ws)
 
-renderList :: ListType -> ListSpacing -> Seq Blocks -> M (Widget a)
+renderList :: SemEq a => ListType -> ListSpacing -> Seq Blocks -> M (Widget a) a
 renderList ty _spacing bs = do
     let is = case ty of
           BulletList _ -> repeat ("• ")
@@ -224,17 +271,18 @@ renderList ty _spacing bs = do
 
     return $ vBox results
 
-renderWrappedLine :: Text -> WrappedLine -> Widget a
+renderWrappedLine :: Show a => Text -> WrappedLine a -> Widget a
 renderWrappedLine curUser l = hBox $ F.toList $ renderFlattenedValue curUser <$> l
 
-renderFlattenedValue :: Text -> FlattenedValue -> Widget a
+renderFlattenedValue :: Show a => Text -> FlattenedValue a -> Widget a
 renderFlattenedValue curUser (NonBreaking rs) =
     let renderLine = hBox . F.toList . fmap (renderFlattenedValue curUser)
     in vBox (F.toList $ renderLine <$> F.toList rs)
-renderFlattenedValue curUser (SingleInline fi) = addHyperlink $ addStyles widget
+renderFlattenedValue curUser (SingleInline fi) = addClickable $ addHyperlink $ addStyles widget
     where
         val = fiValue fi
         mUrl = fiURL fi
+        mName = fiName fi
         styles = fiStyles fi
 
         addStyles w = foldr addStyle w styles
@@ -250,9 +298,13 @@ renderFlattenedValue curUser (SingleInline fi) = addHyperlink $ addStyles widget
             Nothing -> id
             Just u -> B.withDefAttr urlAttr . B.hyperlink (unURL u)
 
+        addClickable w = case mName of
+            Nothing -> id w
+            Just nm -> B.clickable nm w
+
         widget = case val of
             FSpace               -> B.txt " "
-            FUser u              -> colorUsername curUser u $ userSigil <> u
+            FUser u              -> colorUsername curUser u $ addUserSigil u
             FChannel c           -> B.withDefAttr channelNameAttr $
                                     B.txt $ normalChannelSigil <> c
             FEmoji em            -> B.withDefAttr emojiAttr $
@@ -277,3 +329,7 @@ wrappedTextWithCursor t
 
 removeCursor :: Text -> Text
 removeCursor = T.filter (/= cursorSentinel)
+
+-- Cursor sentinel for tracking the user's cursor position in previews.
+cursorSentinel :: Char
+cursorSentinel = '‸'

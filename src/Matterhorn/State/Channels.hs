@@ -46,6 +46,7 @@ module Matterhorn.State.Channels
   , toggleExpandedChannelTopics
   , updateChannelNotifyProps
   , renameChannelUrl
+  , toggleChannelFavoriteStatus
   )
 where
 
@@ -589,6 +590,24 @@ applyPreferenceChange pref = do
               False -> do
                   csChannel(cId).ccInfo.cdSidebarShowOverride .= Nothing
 
+      | Just f <- preferenceToFavoriteChannelPreference pref -> do
+          updateSidebar Nothing
+
+          -- We need to check on whether this preference was to show a
+          -- channel and, if so, whether it was the one we attempted to
+          -- switch to (thus triggering the preference change). If so,
+          -- we need to switch to it now.
+          let cId = favoriteChannelId f
+          case favoriteChannelShow f of
+              True -> do
+                  pending <- checkPendingChannelChange cId
+                  case pending of
+                      Just mAct -> do
+                          setFocus cId
+                          fromMaybe (return ()) mAct
+                      Nothing -> return ()
+              False -> do
+                  csChannel(cId).ccInfo.cdSidebarShowOverride .= Nothing
       | otherwise -> return ()
 
 refreshChannelById :: ChannelId -> MH ()
@@ -755,7 +774,7 @@ getNextUnreadChannel st =
     -- for the next candidate channel.
     Z.findRight (\e ->
                 let cId = channelListEntryChannelId e
-                in hasUnread st cId && (cId /= st^.csCurrentChannelId(st^.csCurrentTeamId)))
+                in channelListEntryUnread e && (cId /= st^.csCurrentChannelId(st^.csCurrentTeamId)))
 
 getNextUnreadUserOrChannel :: ChatState
                            -> Zipper a ChannelListEntry
@@ -763,9 +782,9 @@ getNextUnreadUserOrChannel :: ChatState
 getNextUnreadUserOrChannel st z =
     -- Find the next unread channel, prefering direct messages
     let cur = st^.csCurrentChannelId(st^.csCurrentTeamId)
-        matches e = entryIsDMEntry e && isFresh (channelListEntryChannelId e)
-        isFresh c = hasUnread st c && (c /= cur)
-    in fromMaybe (Z.findRight (isFresh . channelListEntryChannelId) z)
+        matches e = entryIsDMEntry e && isFresh e
+        isFresh e = channelListEntryUnread e && (channelListEntryChannelId e /= cur)
+    in fromMaybe (Z.findRight isFresh z)
                  (Z.maybeFindRight matches z)
 
 leaveCurrentChannel :: MH ()
@@ -988,34 +1007,39 @@ createOrFocusDMChannel user successAct = do
 -- but valid user channel.
 changeChannelByName :: Text -> MH ()
 changeChannelByName name = do
+    myId <- gets myUserId
     mCId <- gets (channelIdByChannelName name)
     mDMCId <- gets (channelIdByUsername name)
 
     withFetchedUserMaybe (UserFetchByUsername name) $ \foundUser -> do
-        let err = mhError $ AmbiguousName name
-        case (mCId, mDMCId) of
-          (Nothing, Nothing) ->
-              case foundUser of
-                  -- We know about the user but there isn't already a DM
-                  -- channel, so create one.
-                  Just user -> createOrFocusDMChannel user Nothing
-                  -- There were no matches of any kind.
-                  Nothing -> mhError $ NoSuchChannel name
-          (Just cId, Nothing)
-              -- We matched a channel and there was an explicit sigil, so we
-              -- don't care about the username match.
-              | normalChannelSigil `T.isPrefixOf` name -> setFocus cId
-              -- We matched both a channel and a user, even though there is
-              -- no DM channel.
-              | Just _ <- foundUser -> err
-              -- We matched a channel only.
-              | otherwise -> setFocus cId
-          (Nothing, Just cId) ->
-              -- We matched a DM channel only.
-              setFocus cId
-          (Just _, Just _) ->
-              -- We matched both a channel and a DM channel.
-              err
+        if (_uiId <$> foundUser) == Just myId
+        then return ()
+        else do
+            setMode Main
+            let err = mhError $ AmbiguousName name
+            case (mCId, mDMCId) of
+              (Nothing, Nothing) ->
+                  case foundUser of
+                      -- We know about the user but there isn't already a DM
+                      -- channel, so create one.
+                      Just user -> createOrFocusDMChannel user Nothing
+                      -- There were no matches of any kind.
+                      Nothing -> mhError $ NoSuchChannel name
+              (Just cId, Nothing)
+                  -- We matched a channel and there was an explicit sigil, so we
+                  -- don't care about the username match.
+                  | normalChannelSigil `T.isPrefixOf` name -> setFocus cId
+                  -- We matched both a channel and a user, even though there is
+                  -- no DM channel.
+                  | Just _ <- foundUser -> err
+                  -- We matched a channel only.
+                  | otherwise -> setFocus cId
+              (Nothing, Just cId) ->
+                  -- We matched a DM channel only.
+                  setFocus cId
+              (Just _, Just _) ->
+                  -- We matched both a channel and a DM channel.
+                  err
 
 setChannelTopic :: Text -> MH ()
 setChannelTopic msg = do
@@ -1058,10 +1082,28 @@ beginCurrentChannelDeleteConfirm = do
 updateChannelNotifyProps :: ChannelId -> ChannelNotifyProps -> MH ()
 updateChannelNotifyProps cId notifyProps = do
     withChannel cId $ \chan -> do
-        case chan^.ccInfo.cdTeamId of
-            Nothing -> do
-                ts <- use csTeams
-                forM_ (HM.keys ts) (mh . invalidateCacheEntry . ChannelSidebar)
-            Just tId -> mh $ invalidateCacheEntry $ ChannelSidebar tId
-
         csChannel(cId).ccInfo.cdNotifyProps .= notifyProps
+        updateSidebar (chan^.ccInfo.cdTeamId)
+
+toggleChannelFavoriteStatus :: MH ()
+toggleChannelFavoriteStatus = do
+    myId <- gets myUserId
+    tId  <- use csCurrentTeamId
+    cId <- use (csCurrentChannelId tId)
+    userPrefs <- use (csResources.crUserPreferences)
+    session <- getSession
+    let favPref = favoriteChannelPreference userPrefs cId
+        trueVal = "true"
+        prefVal =  case favPref of
+            Just True -> ""
+            Just False -> trueVal
+            Nothing -> trueVal
+        pref = Preference
+            { preferenceUserId = myId
+            , preferenceCategory = PreferenceCategoryFavoriteChannel
+            , preferenceName = PreferenceName $ idString cId
+            , preferenceValue = PreferenceValue prefVal
+            }
+    doAsyncWith Normal $ do
+        MM.mmSaveUsersPreferences UserMe (Seq.singleton pref) session
+        return Nothing

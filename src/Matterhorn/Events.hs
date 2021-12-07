@@ -11,8 +11,10 @@ import           Matterhorn.Prelude
 
 import           Brick
 import qualified Data.Text as T
+import           GHC.Exception ( fromException )
 import qualified Graphics.Vty as Vty
 import           Lens.Micro.Platform ( (.=), _2, singular, _Just )
+import qualified System.IO.Error as IO
 
 import qualified Network.Mattermost.Endpoints as MM
 import           Network.Mattermost.Exceptions ( mattermostErrorMessage )
@@ -31,6 +33,7 @@ import           Matterhorn.Windows.ViewMessage
 
 import           Matterhorn.Events.ChannelSelect
 import           Matterhorn.Events.ChannelTopicWindow
+import           Matterhorn.Events.SaveAttachmentWindow
 import           Matterhorn.Events.DeleteChannelConfirm
 import           Matterhorn.Events.Keybindings
 import           Matterhorn.Events.LeaveChannelConfirm
@@ -45,9 +48,9 @@ import           Matterhorn.Events.ChannelListOverlay
 import           Matterhorn.Events.ReactionEmojiListOverlay
 import           Matterhorn.Events.TabbedWindow
 import           Matterhorn.Events.ManageAttachments
+import           Matterhorn.Events.Mouse
 import           Matterhorn.Events.EditNotifyPrefs
 import           Matterhorn.Events.Websocket
-
 
 onEvent :: ChatState -> BrickEvent Name MHEvent -> EventM Name (Next ChatState)
 onEvent st ev = runMHEvent st $ do
@@ -63,8 +66,21 @@ onBrickEvent (VtyEvent (Vty.EvKey (Vty.KChar 'l') [Vty.MCtrl])) = do
     liftIO $ Vty.refresh vty
 onBrickEvent (VtyEvent e) =
     onVtyEvent e
-onBrickEvent _ =
-    return ()
+onBrickEvent e@(MouseDown n button modifier _) = do
+    mhLog LogGeneral $ T.pack $ "MOUSE EVENT: " <> show (n, button, modifier)
+    lastClick <- use csLastMouseDownEvent
+    let shouldHandle = case lastClick of
+            Nothing -> True
+            Just (MouseDown prevN _ _ _) -> not $ prevN `semeq` n
+            _ -> False
+    when shouldHandle $ do
+        mhLog LogGeneral "Handling mouse event"
+        csLastMouseDownEvent .= Just e
+        mode <- use (csCurrentTeam.tsMode)
+        mouseHandlerByMode mode e
+onBrickEvent (MouseUp {}) = do
+    csLastMouseDownEvent .= Nothing
+    mhContinueWithoutRedraw
 
 onAppEvent :: MHEvent -> MH ()
 onAppEvent RefreshWebsocketEvent =
@@ -112,7 +128,7 @@ onAppEvent (IEvent e) = do
 
 handleIEvent :: InternalEvent -> MH ()
 handleIEvent (DisplayError e) =
-    postErrorMessage' $ formatError e
+    postErrorMessage' $ formatMHError e
 handleIEvent (LoggingStarted path) =
     postInfoMessage $ "Logging to " <> T.pack path
 handleIEvent (LogDestination dest) =
@@ -132,33 +148,46 @@ handleIEvent (LogSnapshotFailed path err) =
     postErrorMessage' $ "Could not write log snapshot to " <> T.pack path <>
                         ", error: " <> T.pack err
 
-formatError :: MHError -> T.Text
-formatError (GenericError msg) =
+formatMHError :: MHError -> T.Text
+formatMHError (GenericError msg) =
     msg
-formatError (NoSuchChannel chan) =
+formatMHError (NoSuchChannel chan) =
     T.pack $ "No such channel: " <> show chan
-formatError (NoSuchUser user) =
+formatMHError (NoSuchUser user) =
     T.pack $ "No such user: " <> show user
-formatError (AmbiguousName name) =
+formatMHError (AmbiguousName name) =
     (T.pack $ "The input " <> show name <> " matches both channels ") <>
     "and users. Try using '" <> userSigil <> "' or '" <>
     normalChannelSigil <> "' to disambiguate."
-formatError (ServerError e) =
+formatMHError (ServerError e) =
     mattermostErrorMessage e
-formatError (ClipboardError msg) =
+formatMHError (ClipboardError msg) =
     msg
-formatError (ConfigOptionMissing opt) =
+formatMHError (ConfigOptionMissing opt) =
     T.pack $ "Config option " <> show opt <> " missing"
-formatError (ProgramExecutionFailed progName logPath) =
+formatMHError (ProgramExecutionFailed progName logPath) =
     T.pack $ "An error occurred when running " <> show progName <>
              "; see " <> show logPath <> " for details."
-formatError (NoSuchScript name) =
+formatMHError (NoSuchScript name) =
     "No script named " <> name <> " was found"
-formatError (NoSuchHelpTopic topic) =
+formatMHError (NoSuchHelpTopic topic) =
     let knownTopics = ("  - " <>) <$> helpTopicName <$> helpTopics
     in "Unknown help topic: `" <> topic <> "`. " <>
        (T.unlines $ "Available topics are:" : knownTopics)
-formatError (AsyncErrEvent e) =
+formatMHError (AttachmentException e) =
+    case fromException e of
+      Just (ioe :: IO.IOError) ->
+          if IO.isDoesNotExistError ioe
+          then "Error attaching, file does not exist!"
+          else if IO.isPermissionError ioe
+               then "Error attaching, lacking permissions to read file!"
+               else "Unable to attach the requested file.  Check that it exists and has proper permissions."
+      Nothing -> "Unknown error attaching file!\n" <>
+          "Please report this error at https://github.com/matterhorn-chat/matterhorn/issues"
+          -- this case shouldn't be reached
+formatMHError (BadAttachmentPath msg) =
+    msg
+formatMHError (AsyncErrEvent e) =
     "An unexpected error has occurred! The exception encountered was:\n  " <>
     T.pack (show e) <>
     "\nPlease report this error at https://github.com/matterhorn-chat/matterhorn/issues"
@@ -206,6 +235,7 @@ globalHandlerByMode mode =
         ManageAttachmentsBrowseFiles -> onEventManageAttachments
         EditNotifyPrefs            -> void . onEventEditNotifyPrefs
         ChannelTopicWindow         -> onEventChannelTopicWindow
+        SaveAttachmentWindow _     -> onEventSaveAttachmentWindow
 
 globalKeybindings :: KeyConfig -> KeyHandlerMap
 globalKeybindings = mkKeybindings globalKeyHandlers

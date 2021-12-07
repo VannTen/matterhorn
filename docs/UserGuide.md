@@ -188,6 +188,46 @@ keys change selection. Once you've attached a file, you'll see the text
 `(1 attachment)` above your message editor. You can attach additional
 files or remove existing attachments by pressing `C-x` again.
 
+# Mouse Support
+
+Matterhorn supports mouse interaction with some UI elements. To enable
+mouse support, set `enableMouseMode` to `True` in your Matterhorn
+configuration.
+
+Mouse interaction is supported on the following user interface elements:
+
+* Channel list entries can be clicked to switch channels.
+
+* Channel list entries in channel selection mode (`C-g`) can be clicked
+to switch to the selected channel match.
+
+* Team names in the team list can be clicked to switch teams.
+
+* URLs and post links in the URL list (`C-o`) can be clicked to open
+them.
+
+* URLs in messages can be clicked to open them using the configured URL
+opener.
+
+* Post links in messages can be clicked to switch to the channel
+containing the post.
+
+* Attachments in posts can be clicked to open them with the configured
+URL opener.
+
+* Usernames in messages can be clicked to switch to the direct message
+channel for the clicked user.
+
+* Usernames in the "Reactions" tab of the message view window can be
+clicked to switch to the direct message channel for the clicked user.
+
+* Reactions to messages can be toggled by clicking on them.
+Click-toggling also works in the "Search Emoji" window as well as the
+"Reactions" tab of the message view window.
+
+* Settings in the `/notify-prefs` window can be manipulated with the
+mouse.
+
 # Spell Checking Support
 
 Matterhorn uses `aspell` to perform spell-checking of your message

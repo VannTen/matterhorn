@@ -25,7 +25,7 @@ import           Matterhorn.Themes
 import           Matterhorn.TimeUtils
 import           Matterhorn.Types
 import           Matterhorn.Types.KeyEvents
-import           Matterhorn.Events.Keybindings ( getFirstDefaultBinding )
+import           Matterhorn.Events.Keybindings ( firstActiveBinding )
 
 
 defaultTimeFormat :: Text
@@ -57,17 +57,16 @@ renderUTCTime fmt tz t =
     then emptyWidget
     else withDefAttr timeAttr (txt $ localTimeText fmt $ asLocalTime tz t)
 
-renderKeybindingHelp :: Text -> [KeyEvent] -> Widget Name
-renderKeybindingHelp label evs =
-  let ppEv ev = withDefAttr clientEmphAttr $ txt (ppBinding (getFirstDefaultBinding ev))
+renderKeybindingHelp :: ChatState -> Text -> [KeyEvent] -> Widget Name
+renderKeybindingHelp st label evs =
+  let ppEv ev = withDefAttr clientEmphAttr $ txt (ppBinding (firstActiveBinding kc ev))
+      kc = st^.csResources.crConfiguration.configUserKeysL
   in hBox $ (intersperse (txt "/") $ ppEv <$> evs) <> [txt (":" <> label)]
 
--- | Generates a local matterhorn-only client message that creates a
--- date marker.  The server date is converted to a local time (via
--- timezone), and midnight of that timezone used to generate date
--- markers.  Note that the actual time of the server and this client
--- are still not synchronized, but no manipulations here actually use
--- the client time.
+-- | Modifies a message sequence by inserting date transition markers
+-- in between messages with different creation dates. Server dates from
+-- messages are converted to local time (via the current timezone)
+-- and midnight of that timezone used to generate date markers.
 insertDateMarkers :: Messages -> Text -> TimeZoneSeries -> Messages
 insertDateMarkers ms datefmt tz = foldr (addMessage . dateMsg) ms dateRange
     where dateRange = foldr checkDateChange Set.empty ms
@@ -75,7 +74,6 @@ insertDateMarkers ms datefmt tz = foldr (addMessage . dateMsg) ms dateRange
                               in if m^.mDeleted then id else Set.insert msgDay
           dateMsg d = let t = localTimeText datefmt $ asLocalTime tz d
                       in newMessageOfType t (C DateTransition) (ServerTime d)
-
 
 withBrackets :: Widget a -> Widget a
 withBrackets w = hBox [str "[", w, str "]"]

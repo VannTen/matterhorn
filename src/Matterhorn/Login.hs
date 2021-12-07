@@ -78,7 +78,7 @@ import           Network.Mattermost ( ConnectionData )
 import           Network.Mattermost.Types.Internal ( Token(..) )
 import           Network.Mattermost.Types ( Session(..), User, Login(..), ConnectionPoolConfig(..)
                                           , initConnectionData, ConnectionType(..), UserParam(..) )
-import           Network.Mattermost.Exceptions ( LoginFailureException(..) )
+import           Network.Mattermost.Exceptions ( LoginFailureException(..), MattermostError(..) )
 import           Network.Mattermost.Endpoints ( mmGetUser, mmGetLimitedClientConfiguration, mmLogin )
 
 import           Matterhorn.Draw.RichText
@@ -87,7 +87,7 @@ import           Matterhorn.Types ( ConnectionInfo(..)
                        , ciPassword, ciUsername, ciHostname, ciUrlPath
                        , ciPort, ciType, AuthenticationException(..)
                        , LogManager, LogCategory(..), ioLogWithManager
-                       , ciAccessToken
+                       , ciAccessToken, SemEq(..)
                        )
 
 
@@ -98,6 +98,9 @@ data Name =
     | Password
     | AccessToken
     deriving (Ord, Eq, Show)
+
+instance SemEq Name where
+    semeq = (==)
 
 -- | The result of an authentication attempt.
 data LoginAttempt =
@@ -164,6 +167,7 @@ convertLoginExceptions act =
         `catch` (\e -> return $ Left $ ResolveError e)
         `catch` (\e -> return $ Left $ ConnectError e)
         `catchIOError` (\e -> return $ Left $ AuthIOError e)
+        `catch` (\e -> return $ Left $ MattermostServerError e)
         `catch` (\e -> return $ Left $ OtherAuthError e)
 
 -- | The login worker thread.
@@ -569,6 +573,8 @@ renderAuthError (ConnectError _) =
     "Could not connect to server"
 renderAuthError (ResolveError _) =
     "Could not resolve server hostname"
+renderAuthError (MattermostServerError e) =
+    mattermostErrorMessage e
 renderAuthError (AuthIOError err)
   | Err.isDoesNotExistErrorType (Err.ioeGetErrorType err) =
     "Unable to connect to the network"

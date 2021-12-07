@@ -16,7 +16,6 @@ import           Lens.Micro.Platform ( (^?), (%~), to )
 import           Network.Mattermost.Lenses
 import           Network.Mattermost.Types
 
-import           Matterhorn.Constants ( userSigil )
 import           Matterhorn.Draw.Messages
 import           Matterhorn.Draw.Util
 import           Matterhorn.Themes
@@ -51,10 +50,11 @@ drawPostsBox contents st =
               in "Posts pinned in " <> cName
           PostListSearch terms searching -> "Search results" <> if searching
             then ": " <> terms
-            else " (" <> (T.pack . show . length) messages <> "): " <> terms
+            else " (" <> (T.pack . show . length) entries <> "): " <> terms
 
+        entries = filterMessages knownChannel $ st^.csCurrentTeam.tsPostListOverlay.postListPosts
         messages = insertDateMarkers
-                     (filterMessages knownChannel $ st^.csCurrentTeam.tsPostListOverlay.postListPosts)
+                     entries
                      (getDateFormat st)
                      (st^.timeZone)
 
@@ -90,7 +90,7 @@ drawPostsBox contents st =
                  case chan^.ccInfo.cdType of
                   Direct
                     | Just u <- flip userById st =<< chan^.ccInfo.cdDMUserId ->
-                        (forceAttr channelNameAttr (txt (userSigil <> u^.uiName)) <=>
+                        (forceAttr channelNameAttr (txt (addUserSigil $ u^.uiName)) <=>
                           (str "  " <+> renderedMsg))
                   _ -> (forceAttr channelNameAttr (txt (chan^.ccInfo.to (mkChannelName st))) <=>
                          (str "  " <+> renderedMsg))
@@ -104,6 +104,6 @@ drawPostsBox contents st =
               messagesWithStates = (, InThreadShowParent) <$> messages
           in case s of
             Nothing ->
-                map (uncurry renderMessageForOverlay) (reverse (toList messagesWithStates))
+                map (uncurry renderMessageForOverlay) (toList messagesWithStates)
             Just curMsg ->
-              [unsafeRenderMessageSelection (curMsg, (after, before)) renderMessageForOverlay]
+              [unsafeRenderMessageSelection (curMsg, (before, after)) renderMessageForOverlay]

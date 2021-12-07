@@ -28,7 +28,7 @@ renderUrlList st =
     header <=> urlDisplay
     where
         header = (withDefAttr channelHeaderAttr $ vLimit 1 $
-                 (renderText' Nothing "" (getHighlightSet st) $
+                 (renderText' Nothing "" (getHighlightSet st) Nothing $
                   "URLs: " <> (mkChannelName st (st^.csCurrentChannel.ccInfo))) <+>
                  fill ' ') <=> hBorder
 
@@ -42,25 +42,25 @@ renderUrlList st =
 
         hSet = getHighlightSet st
 
-        renderItem sel link =
+        renderItem sel (i, link) =
           let time = link^.linkTime
           in attr sel $ vLimit 2 $
             (vLimit 1 $
-             hBox [ let u = maybe "<server>" id (link^.linkUser.to (nameForUserRef st))
+             hBox [ let u = maybe "<server>" id (link^.linkUser.to (printableNameForUserRef st))
                     in colorUsername me u u
                   , case link^.linkLabel of
                       Nothing -> emptyWidget
                       Just label ->
                           case Seq.null (unInlines label) of
                               True -> emptyWidget
-                              False -> txt ": " <+> renderRichText me hSet Nothing False
+                              False -> txt ": " <+> renderRichText me hSet Nothing False Nothing Nothing
                                                     (Blocks $ Seq.singleton $ Para label)
                   , fill ' '
                   , renderDate st $ withServerTime time
                   , str " "
                   , renderTime st $ withServerTime time
                   ] ) <=>
-            (vLimit 1 (renderLinkTarget (link^.linkTarget)))
+            (vLimit 1 (clickable (ClickableURLListEntry i (link^.linkTarget)) $ renderLinkTarget (link^.linkTarget)))
 
         renderLinkTarget (LinkPermalink (TeamURLName tName) pId) =
             renderText $ "Team: " <> tName <> ", post " <> idString pId

@@ -143,11 +143,17 @@ hiddenServerCommands =
     -- We don't think this command makes sense for Matterhorn.
     , "logout"
 
+    , "remove"
+    , "msg"
+
     -- We provide a version of /leave with confirmation.
     , "leave"
 
     -- We provide our own join UI.
     , "join"
+
+    -- We provide our own search UI.
+    , "search"
 
     -- We provide our own version of this command that opens our own
     -- help UI.

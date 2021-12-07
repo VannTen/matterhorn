@@ -4,13 +4,14 @@
 | ------- | ----------- |
 | `/add-user` | Search for a user to add to the current channel |
 | `/add-user <@user>` | Add a user to the current channel |
+| `/attach <path>` | Attach a given file without browsing |
 | `/create-channel <channel name>` | Create a new public channel |
 | `/create-private-channel <channel name>` | Create a new private channel |
 | `/delete-channel` | Delete the current channel |
 | `/flags` | Open a window of your flagged posts |
 | `/focus <~channel>` | Focus on a channel or user |
 | `/focus` | Select from available channels |
-| `/group-msg <@user [@user ...]>` | Create a group chat |
+| `/group-create <@user [@user ...]>` | Create a group chat |
 | `/help` | Show the main help screen |
 | `/help <topic>` | Show help about a particular topic |
 | `/hide` | Hide the current DM or group channel from the channel list |
@@ -34,7 +35,7 @@
 | `/pinned-posts` | Open a window of this channel's pinned posts |
 | `/quit` | Exit Matterhorn |
 | `/reconnect` | Force a reconnection attempt to the server |
-| `/remove-user <@user>` | Remove a user from the current channel |
+| `/remove <@user>` | Remove a user from the current channel |
 | `/rename-channel-url <channel name>` | Rename the current channel's URL name |
 | `/right` | Focus on the next channel |
 | `/search <terms>` | Search for posts with given terms |
@@ -45,7 +46,9 @@
 | `/theme <theme>` | Set the color theme |
 | `/toggle-channel-list` | Toggle channel list visibility |
 | `/toggle-expanded-topics` | Toggle expanded channel topics |
+| `/toggle-favorite` | Toggle the favorite status of the current channel |
 | `/toggle-message-timestamps` | Toggle message timestamps |
+| `/toggle-truncate-verbatim-blocks` | Toggle truncation of verbatim and code blocks |
 | `/topic` | Set the current channel's topic (header) interactively |
 | `/topic <topic>` | Set the current channel's topic (header) |
 | `/user` | Show users to initiate a private DM chat channel |

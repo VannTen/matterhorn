@@ -139,14 +139,23 @@ startTimezoneMonitorThread tz requestChan = do
       timezoneMonitor prevTz = do
         threadDelay timezoneMonitorSleepInterval
 
-        newTz <- lookupLocalTimeZone
-        when (newTz /= prevTz) $
-            STM.atomically $ STM.writeTChan requestChan $ do
-                return $ Just $ do
-                    timeZone .= newTz
-                    mh invalidateCache
+        newTzResult <- lookupLocalTimeZone
+        nextTz <- case newTzResult of
+            Left e -> do
+                STM.atomically $ STM.writeTChan requestChan $ do
+                    return $ Just $ do
+                        mhLog LogGeneral $ T.pack $ "Could not load time zone information: " <> show e
+                return prevTz
+            Right newTz -> do
+                when (newTz /= prevTz) $
+                    STM.atomically $ STM.writeTChan requestChan $ do
+                        return $ Just $ do
+                            timeZone .= newTz
+                            mh invalidateCache
 
-        timezoneMonitor newTz
+                return newTz
+
+        timezoneMonitor nextTz
 
   void $ forkIO (timezoneMonitor tz)
 
@@ -358,10 +367,17 @@ rateLimitRetry rateLimitNotify act = do
 shouldIgnore :: SomeException -> Bool
 shouldIgnore e =
     let eStr = show e
-    in or [ "getAddrInfo" `isInfixOf` eStr
-          , "Network.Socket.recvBuf" `isInfixOf` eStr
-          , "Network.Socket.sendBuf" `isInfixOf` eStr
-          , "resource vanished" `isInfixOf` eStr
-          , "timeout" `isInfixOf` eStr
-          , "partial packet" `isInfixOf` eStr
-          ]
+    in or $ (`isInfixOf` eStr) <$> ignoreErrorSubstrings
+
+ignoreErrorSubstrings :: [String]
+ignoreErrorSubstrings =
+    [ "getAddrInfo"
+    , "Network.Socket.recvBuf"
+    , "Network.Socket.sendBuf"
+    , "resource vanished"
+    , "timeout"
+    , "partial packet"
+    , "No route to host"
+    , "(5,0,3)"
+    , "(5,0,4)"
+    ]

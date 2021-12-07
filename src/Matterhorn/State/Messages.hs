@@ -1,7 +1,7 @@
 {-# LANGUAGE MultiWayIf #-}
+
 module Matterhorn.State.Messages
   ( PostToAdd(..)
-  , addDisconnectGaps
   , lastMsg
   , sendMessage
   , editMessage
@@ -14,6 +14,7 @@ module Matterhorn.State.Messages
   , fetchVisibleIfNeeded
   , disconnectChannels
   , toggleMessageTimestamps
+  , toggleVerbatimBlockTruncation
   , jumpToPost
   )
 where
@@ -24,6 +25,8 @@ import           Matterhorn.Prelude
 import           Brick.Main ( getVtyHandle, invalidateCacheEntry, invalidateCache )
 import qualified Brick.Widgets.FileBrowser as FB
 import           Control.Exception ( SomeException, try )
+import qualified Data.Aeson as A
+import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Set as Set
@@ -79,6 +82,20 @@ toggleMessageTimestamps = do
     let toggle c = c { configShowMessageTimestamps = not (configShowMessageTimestamps c)
                      }
     csResources.crConfiguration %= toggle
+
+defaultVerbatimTruncateHeight :: Int
+defaultVerbatimTruncateHeight = 25
+
+toggleVerbatimBlockTruncation :: MH ()
+toggleVerbatimBlockTruncation = do
+    mh invalidateCache
+    st <- use id
+    -- Restore the configured setting, or a default if the configuration
+    -- does not specify a setting.
+    let toggle Nothing = (st^.csResources.crConfiguration.configTruncateVerbatimBlocksL) <|>
+                         Just defaultVerbatimTruncateHeight
+        toggle (Just _) = Nothing
+    csVerbatimTruncateSetting %= toggle
 
 clearPendingFlags :: ChannelId -> MH ()
 clearPendingFlags c = csChannel(c).ccContents.cdFetchPending .= False
@@ -162,6 +179,7 @@ editMessage new = do
 
         csChannel (new^.postChannelIdL) . ccContents . cdMessages . traversed . filtered isEditedMessage .= msg
         mh $ invalidateCacheEntry (ChannelMessages $ new^.postChannelIdL)
+        mh $ invalidateCacheEntry $ RenderedMessage $ MessagePostId $ postId new
 
         fetchMentionedUsers mentionedUsers
 
@@ -181,21 +199,23 @@ deleteMessage new = do
     chan.ccContents.cdMessages.traversed.filtered isDeletedMessage %= (& mDeleted .~ True)
     chan %= adjustUpdated new
     mh $ invalidateCacheEntry (ChannelMessages $ new^.postChannelIdL)
+    mh $ invalidateCacheEntry $ RenderedMessage $ MessagePostId $ postId new
 
 addNewPostedMessage :: PostToAdd -> MH ()
 addNewPostedMessage p =
     addMessageToState True True p >>= postProcessMessageAdd
 
--- | Adds the set of Posts to the indicated channel.  The Posts must
--- all be for the specified Channel.  The reqCnt argument indicates
--- how many posts were requested, which will determine whether a gap
--- message is added to either end of the posts list or not.
+-- | Adds the set of Posts to the indicated channel. The Posts must all
+-- be for the specified Channel. The reqCnt argument indicates how many
+-- posts were requested, which will determine whether a gap message is
+-- added to either end of the posts list or not.
 --
--- The addTrailingGap is only True when fetching the very latest messages
--- for the channel, and will suppress the generation of a Gap message
--- following the added block of messages.
+-- The addTrailingGap is only True when fetching the very latest
+-- messages for the channel, and will suppress the generation of a Gap
+-- message following the added block of messages.
 addObtainedMessages :: ChannelId -> Int -> Bool -> Posts -> MH PostProcessMessageAdd
-addObtainedMessages cId reqCnt addTrailingGap posts =
+addObtainedMessages cId reqCnt addTrailingGap posts = do
+  mh $ invalidateCacheEntry (ChannelMessages cId)
   if null $ posts^.postsOrderL
   then do when addTrailingGap $
             -- Fetched at the end of the channel, but nothing was
@@ -548,6 +568,7 @@ addMessageToState doFetchMentionedUsers fetchAuthor newPostData = do
 
                     csPostMap.at(postId new) .= Just msg'
                     mh $ invalidateCacheEntry (ChannelMessages cId)
+                    mh $ invalidateCacheEntry $ RenderedMessage $ MessagePostId $ postId new
                     csChannels %= modifyChannelById cId
                       ((ccContents.cdMessages %~ addMessage msg') .
                        (if not ignoredJoinLeaveMessage then adjustUpdated new else id) .
@@ -665,8 +686,36 @@ data PostToAdd =
     -- only available in websocket events (and then provided to this
     -- constructor).
 
-runNotifyCommand :: Post -> Bool -> MH ()
-runNotifyCommand post mentioned = do
+encodeToJSONstring :: A.ToJSON a => a -> String
+encodeToJSONstring a = BL8.unpack $ A.encode a
+
+-- Notification Version 2 payload definition
+data NotificationV2 = NotificationV2
+    { version :: Int
+    , message :: Text
+    , mention :: Bool
+    , from :: Text
+    } deriving (Show)
+instance A.ToJSON NotificationV2 where
+    toJSON (NotificationV2 vers msg mentioned sender) =
+        A.object [ "version"  A..= vers
+                 , "message"  A..= msg
+                 , "mention"  A..= mentioned
+                 , "from"     A..= sender
+                 ]
+
+-- We define a notifyGetPayload for each notification version.
+notifyGetPayload :: NotificationVersion -> ChatState -> Post -> Bool -> Maybe String
+notifyGetPayload NotifyV1 _ _ _ = do return ""
+notifyGetPayload NotifyV2 st post mentioned = do
+    let notification = NotificationV2 2 msg mentioned sender
+    return (encodeToJSONstring notification)
+        where
+            msg = sanitizeUserText $ postMessage post
+            sender = maybePostUsername st post
+
+handleNotifyCommand :: Post -> Bool -> NotificationVersion -> MH ()
+handleNotifyCommand post mentioned NotifyV1 = do
     outputChan <- use (csResources.crSubprocessLog)
     st <- use id
     notifyCommand <- use (csResources.crConfiguration.configActivityNotifyCommandL)
@@ -680,6 +729,24 @@ runNotifyCommand post mentioned = do
                 runLoggedCommand outputChan (T.unpack cmd)
                                  [notified, sender, messageString] Nothing Nothing
                 return Nothing
+handleNotifyCommand post mentioned NotifyV2 = do
+    outputChan <- use (csResources.crSubprocessLog)
+    st <- use id
+    let payload = notifyGetPayload NotifyV2 st post mentioned
+    notifyCommand <- use (csResources.crConfiguration.configActivityNotifyCommandL)
+    case notifyCommand of
+        Nothing -> return ()
+        Just cmd ->
+            doAsyncWith Preempt $ do
+                runLoggedCommand outputChan (T.unpack cmd) [] payload Nothing
+                return Nothing
+
+runNotifyCommand :: Post -> Bool -> MH ()
+runNotifyCommand post mentioned = do
+    notifyVersion <- use (csResources.crConfiguration.configActivityNotifyVersionL)
+    case notifyVersion of
+        NotifyV1 -> handleNotifyCommand post mentioned NotifyV1
+        NotifyV2 -> handleNotifyCommand post mentioned NotifyV2
 
 maybePostUsername :: ChatState -> Post -> T.Text
 maybePostUsername st p =
@@ -740,8 +807,7 @@ asyncFetchMoreMessages = do
                (\s c -> MM.mmGetPostsForChannel c query s)
                (\c p -> Just $ do
                    pp <- addObtainedMessages c (-pageAmount) addTrailingGap p
-                   postProcessMessageAdd pp
-                   mh $ invalidateCacheEntry (ChannelMessages cId))
+                   postProcessMessageAdd pp)
 
 
 -- | Given a starting point and a direction to move from that point,
@@ -791,8 +857,7 @@ asyncFetchMessagesForGap cId gapMessage =
     in doAsyncChannelMM Preempt cId
        (\s c -> MM.mmGetPostsForChannel c query s)
        (\c p -> Just $ do
-           void $ addObtainedMessages c (-pageAmount) addTrailingGap p
-           mh $ invalidateCacheEntry (ChannelMessages cId))
+           void $ addObtainedMessages c (-pageAmount) addTrailingGap p)
 
 -- | Given a particular message ID, this fetches n messages before and
 -- after immediately before and after the specified message in order
@@ -823,7 +888,6 @@ asyncFetchMessagesSurrounding cId pId = do
       (\c p -> Just $ do
           let last2ndId = secondToLastPostId p
           void $ addObtainedMessages c (-reqAmt) False p
-          mh $ invalidateCacheEntry (ChannelMessages cId)
           -- now start 2nd from end of this fetch to fetch some
           -- messages forward, also overlapping with this fetch and
           -- the original message ID to eliminate all gaps in this
@@ -836,13 +900,11 @@ asyncFetchMessagesSurrounding cId pId = do
             (\s' c' -> MM.mmGetPostsForChannel c' query' s')
             (\c' p' -> Just $ do
                 void $ addObtainedMessages c' (reqAmt + 2) False p'
-                mh $ invalidateCacheEntry (ChannelMessages cId)
             )
       )
       where secondToLastPostId posts =
               let pl = toList $ postsOrder posts
               in if length pl > 1 then Just $ last $ init pl else Nothing
-
 
 fetchVisibleIfNeeded :: MH ()
 fetchVisibleIfNeeded = do
@@ -850,20 +912,25 @@ fetchVisibleIfNeeded = do
     when (sts == Connected) $ do
         tId <- use csCurrentTeamId
         cId <- use (csCurrentChannelId tId)
-        withChannel cId $ \chan ->
+        withChannel cId $ \chan -> do
             let msgs = chan^.ccContents.cdMessages.to reverseMessages
                 (numRemaining, gapInDisplayable, _, rel'pId, overlap) =
                     foldl gapTrail (numScrollbackPosts, False, Nothing, Nothing, 2) msgs
+
+                gapTrail :: (Int, Bool, Maybe MessageId, Maybe MessageId, Int)
+                         -> Message
+                         -> (Int, Bool, Maybe MessageId, Maybe MessageId, Int)
                 gapTrail a@(_,  True, _, _, _) _ = a
                 gapTrail a@(0,     _, _, _, _) _ = a
                 gapTrail   (a, False, b, c, d) m | isGap m = (a, True, b, c, d)
                 gapTrail (remCnt, _, prev'pId, prev''pId, ovl) msg =
                     (remCnt - 1, False, msg^.mMessageId <|> prev'pId, prev'pId <|> prev''pId,
                      ovl + if not (isPostMessage msg) then 1 else 0)
-                numToReq = numRemaining + overlap
+
+                numToRequest = numRemaining + overlap
                 query = MM.defaultPostQuery
                         { MM.postQueryPage    = Just 0
-                        , MM.postQueryPerPage = Just numToReq
+                        , MM.postQueryPerPage = Just numToRequest
                         }
                 finalQuery = case rel'pId of
                                Just (MessagePostId pid) -> query { MM.postQueryBefore = Just pid }
@@ -871,12 +938,13 @@ fetchVisibleIfNeeded = do
                 op = \s c -> MM.mmGetPostsForChannel c finalQuery s
                 addTrailingGap = MM.postQueryBefore finalQuery == Nothing &&
                                  MM.postQueryPage finalQuery == Just 0
-            in when ((not $ chan^.ccContents.cdFetchPending) && gapInDisplayable) $ do
-                      csChannel(cId).ccContents.cdFetchPending .= True
-                      doAsyncChannelMM Preempt cId op
-                          (\c p -> Just $ do
-                              addObtainedMessages c (-numToReq) addTrailingGap p >>= postProcessMessageAdd
-                              csChannel(c).ccContents.cdFetchPending .= False)
+
+            when ((not $ chan^.ccContents.cdFetchPending) && gapInDisplayable) $ do
+                csChannel(cId).ccContents.cdFetchPending .= True
+                doAsyncChannelMM Preempt cId op
+                    (\c p -> Just $ do
+                        csChannel(c).ccContents.cdFetchPending .= False
+                        addObtainedMessages c (-numToRequest) addTrailingGap p >>= postProcessMessageAdd)
 
 asyncFetchAttachments :: Post -> MH ()
 asyncFetchAttachments p = do
@@ -900,7 +968,9 @@ asyncFetchAttachments p = do
                     m
         return $ Just $ do
             csChannel(cId).ccContents.cdMessages.traversed %= addAttachment
-            mh $ invalidateCacheEntry $ ChannelMessages cId
+            mh $ do
+                invalidateCacheEntry $ ChannelMessages cId
+                invalidateCacheEntry $ RenderedMessage $ MessagePostId pId
 
 -- | Given a post ID, switch to that post's channel and select the post
 -- in message selection mode.

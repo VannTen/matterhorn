@@ -75,6 +75,8 @@ data KeyEvent
   | SelectNextTabEvent
   | SelectPreviousTabEvent
 
+  | SaveAttachmentEvent
+
   -- generic cancel
   | CancelEvent
 
@@ -109,6 +111,7 @@ data KeyEvent
 
   | ViewMessageEvent
   | FillGapEvent
+  | CopyPostLinkEvent
   | FlagMessageEvent
   | PinMessageEvent
   | YankMessageEvent
@@ -122,6 +125,20 @@ data KeyEvent
   | AttachmentListAddEvent
   | AttachmentListDeleteEvent
   | AttachmentOpenEvent
+
+  -- Attachment file browser
+  | FileBrowserBeginSearchEvent
+  | FileBrowserSelectEnterEvent
+  | FileBrowserSelectCurrentEvent
+  | FileBrowserListPageUpEvent
+  | FileBrowserListPageDownEvent
+  | FileBrowserListHalfPageUpEvent
+  | FileBrowserListHalfPageDownEvent
+  | FileBrowserListTopEvent
+  | FileBrowserListBottomEvent
+  | FileBrowserListNextEvent
+  | FileBrowserListPrevEvent
+
 
   -- Form submission
   | FormSubmitEvent
@@ -146,6 +163,8 @@ allEvents =
   , ReplyRecentEvent
   , SelectNextTabEvent
   , SelectPreviousTabEvent
+
+  , SaveAttachmentEvent
 
   , EnterFastSelectModeEvent
   , NextChannelEvent
@@ -213,6 +232,7 @@ allEvents =
   , PinMessageEvent
   , ViewMessageEvent
   , FillGapEvent
+  , CopyPostLinkEvent
   , YankMessageEvent
   , YankWholeMessageEvent
   , DeleteMessageEvent
@@ -222,6 +242,19 @@ allEvents =
   , AttachmentListAddEvent
   , AttachmentListDeleteEvent
   , AttachmentOpenEvent
+
+  , FileBrowserBeginSearchEvent
+  , FileBrowserSelectEnterEvent
+  , FileBrowserSelectCurrentEvent
+  , FileBrowserListPageUpEvent
+  , FileBrowserListPageDownEvent
+  , FileBrowserListHalfPageUpEvent
+  , FileBrowserListHalfPageDownEvent
+  , FileBrowserListTopEvent
+  , FileBrowserListBottomEvent
+  , FileBrowserListNextEvent
+  , FileBrowserListPrevEvent
+
   , FormSubmitEvent
   ]
 
@@ -382,6 +415,8 @@ keyEventName ev = case ev of
   SelectNextTabEvent        -> "select-next-tab"
   SelectPreviousTabEvent    -> "select-previous-tab"
 
+  SaveAttachmentEvent       -> "save-attachment"
+
   ShowAttachmentListEvent   -> "show-attachment-list"
 
   EditorKillToBolEvent        -> "editor-kill-to-beginning-of-line"
@@ -439,6 +474,7 @@ keyEventName ev = case ev of
   PinMessageEvent   -> "pin-message"
   ViewMessageEvent   -> "view-message"
   FillGapEvent       -> "fetch-for-gap"
+  CopyPostLinkEvent  -> "copy-post-link"
   YankMessageEvent   -> "yank-message"
   YankWholeMessageEvent   -> "yank-whole-message"
   DeleteMessageEvent -> "delete-message"
@@ -449,5 +485,17 @@ keyEventName ev = case ev of
   AttachmentListAddEvent    -> "add-to-attachment-list"
   AttachmentListDeleteEvent -> "delete-from-attachment-list"
   AttachmentOpenEvent       -> "open-attachment"
+
+  FileBrowserBeginSearchEvent      -> "filebrowser-begin-search"
+  FileBrowserSelectEnterEvent      -> "filebrowser-select-file-or-enter-directory"
+  FileBrowserSelectCurrentEvent    -> "filebrowser-select-current"
+  FileBrowserListPageUpEvent       -> "filebrowser-list-page-up"
+  FileBrowserListPageDownEvent     -> "filebrowser-list-page-down"
+  FileBrowserListHalfPageUpEvent   -> "filebrowser-list-half-page-up"
+  FileBrowserListHalfPageDownEvent -> "filebrowser-list-half-page-down"
+  FileBrowserListTopEvent          -> "filebrowser-list-top"
+  FileBrowserListBottomEvent       -> "filebrowser-list-bottom"
+  FileBrowserListNextEvent         -> "filebrowser-list-next"
+  FileBrowserListPrevEvent         -> "filebrowser-list-previous"
 
   FormSubmitEvent -> "submit-form"

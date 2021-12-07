@@ -42,6 +42,8 @@ app = App
       ThemeListOverlay              -> showFirstCursor s cs
       ChannelTopicWindow            -> let tId = s^.csCurrentTeamId
                                        in showCursorNamed (ChannelTopicEditor tId) cs
+      SaveAttachmentWindow _        -> let tId = s^.csCurrentTeamId
+                                       in showCursorNamed (AttachmentPathEditor tId) cs
       LeaveChannelConfirm           -> Nothing
       DeleteChannelConfirm          -> Nothing
       MessageSelect                 -> Nothing
@@ -84,6 +86,7 @@ runMatterhorn opts config = do
           let output = Vty.outputIface vty
           Vty.setMode output Vty.BracketedPaste True
           Vty.setMode output Vty.Hyperlink $ configHyperlinkingMode config
+          Vty.setMode output Vty.Mouse $ configMouseMode config
           return vty
 
     (st, vty) <- setupState mkVty (optLogLocation opts) config

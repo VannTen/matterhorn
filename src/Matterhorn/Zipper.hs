@@ -10,17 +10,18 @@ module Matterhorn.Zipper
   , rightL
   , findRight
   , maybeFindRight
-  , updateList
   , updateListBy
   , filterZipper
   , maybeMapZipper
   , isEmpty
+  , position
   )
 where
 
 import           Prelude ()
 import           Matterhorn.Prelude hiding (toList)
 
+import           Data.List ( elemIndex )
 import           Data.Maybe ( fromJust )
 import qualified Data.Foldable as F
 import qualified Data.Sequence as Seq
@@ -48,6 +49,11 @@ instance Functor (Zipper a) where
 
 isEmpty :: Zipper a b -> Bool
 isEmpty = C.isEmpty . zRing
+
+position :: (Eq b) => Zipper a b -> Maybe Int
+position z = do
+    f <- focus z
+    elemIndex f $ concat $ fmap snd $ toList z
 
 -- Move the focus one element to the left
 left :: Zipper a b -> Zipper a b
@@ -99,10 +105,20 @@ maybeFindRight f z = do
     newRing <- C.findRotateTo f (zRing z)
     return z { zRing = newRing }
 
-updateList :: (Eq b) => [(a, [b])] -> Zipper a b -> Zipper a b
-updateList newList oldZip = updateListBy (\old b -> old == Just b) newList oldZip
-
-updateListBy :: (Eq b) => (Maybe b -> b -> Bool) -> [(a, [b])] -> Zipper a b -> Zipper a b
+-- | Update the zipper's entry list, using the specified function
+-- determine which entry should be selected in the new zipper state.
+updateListBy :: (Eq b)
+             => (Maybe b -> b -> Bool)
+             -- ^ The comparison function. This is given the previous
+             -- zipper's focus value (which is optional) and is given
+             -- every element in the new zipper state for comparison.
+             -- This should return True for the item in the new zipper
+             -- that matches the focused item in the old zipper.
+             -> [(a, [b])]
+             -- ^ The new zipper list contents.
+             -> Zipper a b
+             -- ^ The old zipper.
+             -> Zipper a b
 updateListBy f newList oldZip = findRight (f (focus oldZip)) $ fromList newList
 
 maybeMapZipper :: (Eq c) => (b -> Maybe c) -> Zipper a b -> Zipper a c

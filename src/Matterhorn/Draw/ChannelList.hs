@@ -29,7 +29,6 @@ import           Lens.Micro.Platform (non)
 
 import qualified Network.Mattermost.Types as MM
 
-import           Matterhorn.Constants ( userSigil )
 import           Matterhorn.Draw.Util
 import           Matterhorn.State.Channels
 import           Matterhorn.Themes
@@ -65,7 +64,7 @@ renderChannelListHeader st =
                      txt $ "Team: " <> teamNameStr
         selfHeader = hCenter $
                      colorUsername myUsername_ myUsername_
-                         (T.singleton statusSigil <> " " <> userSigil <> myUsername_)
+                         (T.singleton statusSigil <> " " <> addUserSigil myUsername_)
         teamNameStr = T.strip $ sanitizeUserText $ MM.teamDisplayName $ st^.csCurrentTeam.tsTeam
         statusSigil = maybe ' ' userSigilFromInfo me
         me = userById (myUserId st) st
@@ -77,7 +76,9 @@ renderChannelList st =
     viewport (ChannelList tId) Vertical body
     where
         myUsername_ = myUsername st
-        renderEntry s e = renderChannelListEntry myUsername_ $ mkChannelEntryData s e
+        channelName e = ClickableChannelListEntry $ channelListEntryChannelId  e
+        renderEntry s e = clickable (channelName e) $
+                          renderChannelListEntry myUsername_ $ mkChannelEntryData s e
         tId = st^.csCurrentTeamId
         body = case st^.csCurrentTeam.tsMode of
             ChannelSelect ->
@@ -98,10 +99,12 @@ renderChannelList st =
 
 renderChannelListGroupHeading :: ChannelListGroup -> Widget Name
 renderChannelListGroupHeading g =
-    let (unread, label) = case g of
-            ChannelGroupPublicChannels u -> (u, "Public Channels")
-            ChannelGroupPrivateChannels u -> (u, "Private Channels")
-            ChannelGroupDirectMessages u -> (u, "Direct Messages")
+    let label = case channelListGroupLabel g of
+            ChannelGroupPublicChannels   -> "Public Channels"
+            ChannelGroupPrivateChannels  -> "Private Channels"
+            ChannelGroupFavoriteChannels -> "Favorite Channels"
+            ChannelGroupDirectMessages   -> "Direct Messages"
+        unread = channelListGroupUnread g
         addUnread = if unread > 0
                     then (<+> (withDefAttr unreadGroupMarkerAttr $ txt "*"))
                     else id
@@ -135,18 +138,18 @@ mkChannelEntryData st e =
                          }
     where
         cId = channelListEntryChannelId e
+        unread = channelListEntryUnread e
         Just chan = findChannelById cId (st^.csChannels)
-        unread = hasUnread' chan
         recent = isRecentChannel st cId
         ret = isReturnChannel st cId
         current = isCurrentChannel st cId
-        muted = isMuted chan
-        (name, normalSigil, addSpace, status) = case e of
-            CLChannel _ ->
+        muted = channelListEntryMuted e
+        (name, normalSigil, addSpace, status) = case channelListEntryType e of
+            CLChannel ->
                 (chan^.ccInfo.cdDisplayName, Nothing, False, Nothing)
-            CLGroupDM _ ->
+            CLGroupDM ->
                 (chan^.ccInfo.cdDisplayName, Just " ", True, Nothing)
-            CLUserDM _ uId ->
+            CLUserDM uId ->
                 let Just u = userById uId st
                     uname = if useNickname st
                             then u^.uiNickName.non (u^.uiName)
@@ -202,7 +205,8 @@ renderChannelSelectListEntry curMatch st match =
                       | entryHasUnread entryData ->
                           withDefAttr unreadChannelAttr
                       | otherwise -> id
-    in decorate $ maybeSelect $
+    in clickable (ChannelSelectEntry match) $
+       decorate $ maybeSelect $
        decorateEntry entryData $ decorateMentions entryData $
        padRight Max $
          hBox [ txt $ entrySigil entryData <> preMatch

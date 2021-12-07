@@ -21,14 +21,15 @@ import qualified Data.Foldable as F
 import qualified Graphics.Vty as Vty
 import           Lens.Micro.Platform ( to )
 
-import           Network.Mattermost.Types ( TeamId )
+import           Network.Mattermost.Types ( TeamId, Post (postId) )
 
 import           Matterhorn.Constants
 import           Matterhorn.Events.Keybindings
 import           Matterhorn.Themes
 import           Matterhorn.Types
+import           Matterhorn.Types.RichText ( Inline(EUser) )
 import           Matterhorn.Draw.RichText
-import           Matterhorn.Draw.Messages ( renderMessage, MessageData(..), nameForUserRef )
+import           Matterhorn.Draw.Messages ( renderMessage, MessageData(..), printableNameForUserRef )
 
 -- | The template for "View Message" windows triggered by message
 -- selection mode.
@@ -110,19 +111,34 @@ reactionsText st m = viewport (ViewMessageReactionsArea tId) Vertical body
         mkEntry (reactionName, userIdSet) =
             let count = str $ "(" <> show (S.size userIdSet) <> ")"
                 name = withDefAttr emojiAttr $ txt $ ":" <> reactionName <> ":"
+                clickableName = makeClickableName name reactionName userIdSet
                 usernameList = usernameText userIdSet
-            in (name <+> (padLeft (Pad 1) count)) <=>
+            in (clickableName <+> (padLeft (Pad 1) count)) <=>
                (padLeft (Pad 2) usernameList)
 
         hs = getHighlightSet st
 
+        clickableUsernames i (EUser un) =
+            Just $ ClickableUsername (ViewMessageReactionsArea tId) i un
+        clickableUsernames _ _ =
+            Nothing
+
         usernameText uids =
-            renderText' Nothing (myUsername st) hs $
+            renderText' Nothing (myUsername st) hs (Just clickableUsernames) $
             T.intercalate ", " $
-            fmap (userSigil <>) $
+            fmap addUserSigil $
             catMaybes (lookupUsername <$> F.toList uids)
 
         lookupUsername uid = usernameForUserId uid st
+
+        makeName e us = do
+            pid <- postId <$> m^.mOriginalPost
+            Just $ ClickableReaction pid e us
+
+        makeClickableName w e us =
+            case makeName e us of
+                Just n ->  clickable n w
+                Nothing -> w
 
 viewMessageBox :: ChatState -> Message -> Widget Name
 viewMessageBox st msg =
@@ -141,9 +157,9 @@ viewMessageBox st msg =
                 md = MessageData { mdEditThreshold     = Nothing
                                  , mdShowOlderEdits    = False
                                  , mdMessage           = msg
-                                 , mdUserName          = msg^.mUser.to (nameForUserRef st)
+                                 , mdUserName          = msg^.mUser.to (printableNameForUserRef st)
                                  , mdParentMessage     = parent
-                                 , mdParentUserName    = parent >>= (^.mUser.to (nameForUserRef st))
+                                 , mdParentUserName    = parent >>= (^.mUser.to (printableNameForUserRef st))
                                  , mdRenderReplyParent = True
                                  , mdHighlightSet      = hs
                                  , mdIndentBlocks      = True
@@ -151,7 +167,9 @@ viewMessageBox st msg =
                                  , mdShowReactions     = False
                                  , mdMessageWidthLimit = Just vpWidth
                                  , mdMyUsername        = myUsername st
+                                 , mdMyUserId          = myUserId st
                                  , mdWrapNonhighlightedCodeBlocks = False
+                                 , mdTruncateVerbatimBlocks = Nothing
                                  }
             in renderMessage md
 

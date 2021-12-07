@@ -13,6 +13,8 @@ where
 import           Prelude ()
 import           Matterhorn.Prelude
 
+import qualified Paths_matterhorn as Paths
+
 import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.Class ( lift )
 import           Data.Char ( isDigit, isAlpha )
@@ -48,7 +50,8 @@ defaultSkylightingPaths :: IO [FilePath]
 defaultSkylightingPaths = do
     xdg <- xdgSyntaxDir
     adjacent <- getBundledSyntaxPath
-    return [xdg, adjacent]
+    cabalDataFiles <- Paths.getDataFileName syntaxDirName
+    return [xdg, adjacent, cabalDataFiles]
 
 getBundledSyntaxPath :: IO FilePath
 getBundledSyntaxPath = do
@@ -109,10 +112,17 @@ fromIni = do
       (configEnableAspell defaultConfig)
     configSyntaxDirs <- fieldDefOf "syntaxDirectories" syntaxDirsField []
     configActivityNotifyCommand <- fieldMb "activityNotifyCommand"
+    configActivityNotifyVersion <- fieldDefOf "activityNotifyVersion"
+      notifyVersion (configActivityNotifyVersion defaultConfig)
     configShowMessageTimestamps <- fieldFlagDef "showMessageTimestamps"
       (configShowMessageTimestamps defaultConfig)
     configActivityBell <- fieldFlagDef "activityBell"
       (configActivityBell defaultConfig)
+    configTruncateVerbatimBlocksInt <- fieldDefOf "truncateVerbatimBlockHeight" number
+      (maybe 0 id $ configTruncateVerbatimBlocks defaultConfig)
+    let configTruncateVerbatimBlocks = case configTruncateVerbatimBlocksInt of
+            i | i <= 0 -> Nothing
+              | otherwise -> Just i
     configHyperlinkingMode <- fieldFlagDef "hyperlinkURLs"
       (configHyperlinkingMode defaultConfig)
     configPass <- (Just . PasswordCommand <$> field "passcmd") <!>
@@ -130,6 +140,8 @@ fromIni = do
     configDirectChannelExpirationDays <- fieldDefOf "directChannelExpirationDays" number
       (configDirectChannelExpirationDays defaultConfig)
     configDefaultAttachmentPath <- fieldMbOf "defaultAttachmentPath" filePathField
+    configMouseMode <- fieldFlagDef "enableMouseMode"
+      (configMouseMode defaultConfig)
 
     let configAbsPath = Nothing
         configUserKeys = mempty
@@ -192,6 +204,14 @@ backgroundField t =
         _ -> Left ("Invalid value " <> show t
                   <> "; must be one of: Disabled, Active, ActiveCount")
 
+notifyVersion :: Text -> Either String NotificationVersion
+notifyVersion t =
+    case t of
+        "1" -> Right NotifyV1
+        "2" -> Right NotifyV2
+        _ -> Left ("Invalid value " <> show t
+                  <> "; must be one of NotifyV1, NotifyV2")
+
 cpuUsagePolicy :: Text -> Either String CPUUsagePolicy
 cpuUsagePolicy t =
     case T.toLower t of
@@ -241,7 +261,9 @@ defaultConfig =
            , configURLOpenCommand              = Nothing
            , configURLOpenCommandInteractive   = False
            , configActivityNotifyCommand       = Nothing
+           , configActivityNotifyVersion       = NotifyV1
            , configActivityBell                = False
+           , configTruncateVerbatimBlocks      = Nothing
            , configShowMessageTimestamps       = True
            , configShowBackground              = Disabled
            , configShowMessagePreview          = False
@@ -262,6 +284,7 @@ defaultConfig =
            , configCpuUsagePolicy              = MultipleCPUs
            , configDefaultAttachmentPath       = Nothing
            , configChannelListOrientation      = ChannelListLeft
+           , configMouseMode                   = False
            }
 
 findConfig :: Maybe FilePath -> IO (Either String ([String], Config))

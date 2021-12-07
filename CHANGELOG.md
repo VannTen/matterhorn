@@ -1,4 +1,143 @@
 
+50200.14.1
+==========
+
+Bug fixes:
+ * Fixed an issue where some builds would crash right after startup with
+   a missing "mappend" exception.
+
+50200.14.0
+==========
+
+New features and improvements:
+ * The UI elements of the `/notify-prefs` window now support mouse
+   interaction.
+ * Message attachments can now be clicked with the mouse to open them
+   with the configured URL/file opener command.
+ * Long verbatim and code blocks can now be truncated when they're too
+   large. By default, they are not truncated. (#725) This change adds:
+   * A new theme attribute, `verbatimTruncateMessage`, that affects the
+     truncation message
+   * A new configuration setting, `truncateVerbatimBlockHeight` (default
+     `0`) that governs how long code and verbatim blocks are truncated.
+     A value of zero disables truncation, while values greater than zero
+     cause truncation at the specified line limit.
+   * A new command, `/toggle-truncate-verbatim-blocks`, that toggles the
+     configuration setting at runtime
+ * The channel list now floats muted channels to the end of their
+   respective channel groups to mirror the UI behavior of the official
+   web client.
+ * Reactions posted to messages now visually indicate which reactions
+   are posted by the current user (#729). This change adds two new theme
+   attributes:
+   * "reaction" - used for emoji reactions posted by other users, and
+   * "reaction.mine" - used for emoji reactions posted by the current
+     user
+   This change uses the new attributes for emoji reations rather than
+   emojiAttr ("emoji"). We do this to visually indicate which reactions
+   the current user has contributed to, so that they do not accidentally
+   remove their own reactions due to trying to increment them and
+   removing them by accident.
+ * The `/join` window lists channels with the display name of each
+   channel before that entry's URL name and sorts the entries by display
+   name.
+ * Matterhorn now searches for XML syntax specifications and
+   `emoji.json` using the Cabal package data-files path. This
+   makes Matterhorn behave better when installed with `cabal`, but
+   Matterhorn's search behavior is otherwise unchanged for users who
+   are not running `cabal`-installed builds of Matterhorn. Thanks to
+   @sternenseemann for this work!
+
+Bug fixes:
+ * Hyperlinks and username references inside of Markdown tables are now
+   supported (#739).
+ * Post listing windows now display messages chronologically (#731).
+ * Post listing windows now show the number of messages, not list
+   entries, in the window title bar (#730).
+ * The `/join` window now uses the correct server API endpoint to fetch
+   the initial dataset, causing more channels to be displayed (#727).
+
+50200.13.0
+==========
+
+New features:
+ * Matterhorn now has optional mouse support! Thanks to Hari Menon
+   (@phsmenon) for this work. From the User Guide: Matterhorn supports
+   mouse interaction with some UI elements. To enable mouse support, set
+   `enableMouseMode` to `True` in your Matterhorn configuration. Mouse
+   interaction is supported on the following user interface elements:
+   * Channel list entries can be clicked to switch channels.
+   * Channel list entries in channel selection mode (`C-g`) can be
+     clicked to switch to the selected channel match.
+   * Team names in the team list can be clicked to switch teams.
+   * URLs and post links in the URL list (`C-o`) can be clicked to open
+     them.
+   * URLs in messages can be clicked to open them using the configured
+     URL opener.
+   * Post links in messages can be clicked to switch to the channel
+     containing the post.
+   * Usernames in messages can be clicked to switch to the direct
+     message channel for the clicked user.
+   * Usernames in the "Reactions" tab of the message view window can be
+     clicked to switch to the direct message channel for the clicked
+     user.
+   * Reactions to messages can be toggled by clicking on them.
+     Click-toggling also works in the "Search Emoji" window as well as
+     the "Reactions" tab of the message view window.
+ * Notification scripts now have a richer versioned interface. Thanks to
+   Dave Lamkins (@TieDyedDevil) for this work. Details can be found in
+   `docs/notification-scripts.md`.
+ * Favorite channel support was added. Thanks to Ajay Eeralla
+   (@ajayeeralla) for this work.
+   * Matterhorn now honors the "favorite" status of channels, displaying
+     favorite channels together in a new channel list category.
+   * Matterhorn got a new command, `/toggle-favorite`, to toggle the
+     favorite status of the current channel.
+ * A new `/attach` command can be used to attach a file to the message
+   being composed.
+ * The URL list got a new keybinding to prompt for attachment save path
+   for the selected entry. This added a new key event, `save-attachment`
+   (default binding: `s`), for the URL list. When triggered, if the
+   selected URL entry is for an attachment, a dialog box is shown
+   prompting the user for a path to which to save the attachment. (If
+   the entry is not an attachment, the event is ignored.)
+ * The attachment file browser's key bindings can now be customized as
+   Matterhorn key events. Thanks to Dave Lamkins (@TieDyedDevil) for
+   this work. (#628)
+ * Matterhorn now supports pipe table syntax in Mattermost messages.
+ * The URL selection mode now displays available actions in its UI.
+   The URL list's bottom bar now indicates any actions that are
+   available for the selected link, similarly to how Matterhorn displays
+   such actions for messages in message selection mode. This change also
+   adds a new theme attribute, `urlSelectStatus`, that is used to render
+   the keybindings shown in the options list.
+
+Bug fixes:
+ * Message reactions are now wrapped rather than being truncated by the
+   window width (#715)
+ * When switching away from one team to another, the previous team now
+   has its current channel marked as viewed to fix a bug where unread
+   messages in that channel were still seen as unread.
+
+Other improvements:
+ * Channel autocompletion alternatives are now trimmed to one row in
+   height (thanks Karl Smeltzer (@karljs)).
+ * User metadata is now updated correctly in reponse to websocket events
+   (#697; thanks Karl Smeltzer (@karljs)).
+ * "No route to host" exceptions no longer trigger "unexpected error"
+   messages (#714)
+ * Matterhorn no longer exposes the server's `/msg` command (#657)
+ * Matterhorn no longer exposes the server's `/search` command since
+   Matterhorn provides its own UI for that command.
+ * The `/group-msg` command was renamed to `/group-create` to make it
+   more distinct from the server command which has a different behavior
+   (#657).
+ * The `/remove-user` command was renamed to `/remove` and the server's
+   `/remove` command is no longer exposed (#657).
+ * Matterhorn now shows the team position and count in team list (#692).
+ * Matterhorn now falls back to UTC when it is unable to load local time
+   zone data (#695).
+
 50200.12.0
 ==========
 
