@@ -43,7 +43,6 @@ import           Matterhorn.State.Links
 import           Matterhorn.State.Messages
 import           Matterhorn.Types
 import           Matterhorn.Types.RichText ( findVerbatimChunk, makePermalink )
-import           Matterhorn.Types.Common
 import           Matterhorn.Windows.ViewMessage
 
 
@@ -60,8 +59,8 @@ getSelectedMessage tId st
     | not (st^.csTeam(tId).tsMode `elem` messageSelectCompatibleModes) = Nothing
     | otherwise = do
         selMsgId <- selectMessageId $ st^.csTeam(tId).tsMessageSelect
-        cId <- st^.csCurrentChannelId(tId)
-        chan <- st^?csChannel(cId)
+        h <- st^.csCurrentChannelHandle(tId)
+        chan <- st^?csChannel(h)
         let chanMsgs = chan ^. ccContents . cdMessages
         findMessage selMsgId chanMsgs
 
@@ -119,7 +118,7 @@ viewSelectedMessage tId = do
 
 fillSelectedGap :: TeamId -> MH ()
 fillSelectedGap tId = do
-    withCurrentChannel tId $ \cId _ -> do
+    withCurrentServerChannel tId $ \cId _ -> do
         selected <- use (to (getSelectedMessage tId))
         case selected of
           Just msg
@@ -250,7 +249,7 @@ messageSelectLast tId = do
 
 deleteSelectedMessage :: TeamId -> MH ()
 deleteSelectedMessage tId = do
-    withCurrentChannel tId $ \cId _ -> do
+    withCurrentServerChannel tId $ \cId _ -> do
         selectedMessage <- use (to (getSelectedMessage tId))
         st <- use id
         case selectedMessage of

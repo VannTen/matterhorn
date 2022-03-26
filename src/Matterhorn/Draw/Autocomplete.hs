@@ -19,7 +19,6 @@ import           Matterhorn.Constants ( normalChannelSigil )
 import           Matterhorn.Draw.Util
 import           Matterhorn.Themes
 import           Matterhorn.Types
-import           Matterhorn.Types.Common ( sanitizeUserText )
 
 
 autocompleteLayer :: ChatState -> TeamId -> Widget Name
@@ -53,8 +52,8 @@ renderAutocompleteBox st tId ac =
                      " (Tab/Shift-Tab to select)"
 
         selElem = snd <$> listSelectedElement matchList
-        mcId = st^.csCurrentChannelId(tId)
-        mCurChan = mcId >>= (\cId -> st^?csChannel(cId))
+        mCh = st^.csCurrentChannelHandle(tId)
+        mCurChan = mCh >>= (\h -> st^?csChannel(h))
         footer = case mCurChan of
             Nothing ->
                 hBorder

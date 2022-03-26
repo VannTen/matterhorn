@@ -19,10 +19,10 @@ import Matterhorn.Types
 
 drawLeaveChannelConfirm :: ChatState -> TeamId -> Widget Name
 drawLeaveChannelConfirm st tId =
-    case st^.csCurrentChannelId(tId) of
+    case st^.csCurrentChannelHandle(tId) of
         Nothing -> emptyWidget
-        Just cId ->
-            case st^?csChannel(cId) of
+        Just h ->
+            case st^?csChannel(h) of
                 Nothing -> emptyWidget
                 Just chan ->
                     let cName = chan^.ccInfo.cdName

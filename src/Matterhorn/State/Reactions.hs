@@ -41,8 +41,8 @@ asyncFetchReactionsForPost cId p
 -- incoming reactions.
 addReactions :: ChannelId -> [Reaction] -> MH ()
 addReactions cId rs = do
-    mh $ invalidateCacheEntry $ ChannelMessages cId
-    csChannel(cId).ccContents.cdMessages %= fmap upd
+    mh $ invalidateCacheEntry $ ChannelMessages h
+    csChannel(h).ccContents.cdMessages %= fmap upd
     let mentions = S.fromList $ UserIdMention <$> reactionUserId <$> rs
     fetchMentionedUsers mentions
     invalidateRenderCache
@@ -56,6 +56,7 @@ addReactions cId rs = do
           let cacheIds = map cacheIdOf rs
           mh $ mapM_ invalidateCacheEntry cacheIds
         cacheIdOf r = RenderedMessage $ MessagePostId (r^.reactionPostIdL)
+        h = ServerChannel cId
 
 -- | Remove the specified reaction from its message in the specified
 -- channel. This should only be called in response to a server event
@@ -64,8 +65,8 @@ addReactions cId rs = do
 -- rendered message corresponding to the removed reaction.
 removeReaction :: Reaction -> ChannelId -> MH ()
 removeReaction r cId = do
-    mh $ invalidateCacheEntry $ ChannelMessages cId
-    csChannel(cId).ccContents.cdMessages %= fmap upd
+    mh $ invalidateCacheEntry $ ChannelMessages h
+    csChannel(h).ccContents.cdMessages %= fmap upd
     invalidateRenderCache
   where upd m | m^.mMessageId == Just (MessagePostId $ r^.reactionPostIdL) =
                   m & mReactions %~ (Map.alter delReaction (r^.reactionEmojiNameL))
@@ -73,6 +74,7 @@ removeReaction r cId = do
         delReaction mUs = S.delete (r^.reactionUserIdL) <$> mUs
         invalidateRenderCache =
           mh $ invalidateCacheEntry $ RenderedMessage $ MessagePostId (r^.reactionPostIdL)
+        h = ServerChannel cId
 
 -- | Set or unset a reaction on a post.
 updateReaction :: PostId -> Text -> Bool -> MH ()

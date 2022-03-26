@@ -25,10 +25,10 @@ import           Matterhorn.Types.RichText
 
 renderUrlList :: ChatState -> TeamId -> Widget Name
 renderUrlList st tId =
-    case st^.csCurrentChannelId(tId) of
+    case st^.csCurrentChannelHandle(tId) of
         Nothing -> emptyWidget
-        Just cId ->
-            case st^?csChannel(cId) of
+        Just h ->
+            case st^?csChannel(h) of
                 Nothing -> emptyWidget
                 Just ch -> renderUrlList' st tId ch
 

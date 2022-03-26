@@ -25,7 +25,7 @@ import           Data.Time.Clock ( UTCTime(..) )
 import qualified Graphics.Vty as Vty
 import           Lens.Micro.Platform ( (.~), (^?!), to, view, folding )
 
-import           Network.Mattermost.Types ( ChannelId, Type(Direct, Private, Group)
+import           Network.Mattermost.Types ( Type(Direct, Private, Group)
                                           , ServerTime(..), UserId, TeamId, teamDisplayName
                                           , teamId
                                           )
@@ -45,7 +45,6 @@ import           Matterhorn.State.MessageSelect
 import           Matterhorn.Themes
 import           Matterhorn.TimeUtils ( justAfter, justBefore )
 import           Matterhorn.Types
-import           Matterhorn.Types.Common ( sanitizeUserText )
 import           Matterhorn.Types.DirectionalSeq ( emptyDirSeq )
 import           Matterhorn.Types.RichText ( parseMarkdown, TeamBaseURL, Inline(EHyperlink, EUser) )
 import           Matterhorn.Types.KeyEvents
@@ -395,8 +394,8 @@ renderCurrentChannelDisplay st tId hs = header <=> hBorder <=> messages
                                 , statusBoxWidget
                                 ]
 
-    mcId = st^.(csCurrentChannelId tId)
-    mChan = maybe Nothing (\cId -> st^?csChannel(cId)) mcId
+    mch = st^.(csCurrentChannelHandle tId)
+    mChan = maybe Nothing (\h -> st^?csChannel(h)) mch
 
     channelHeader =
         withDefAttr channelHeaderAttr $
@@ -406,25 +405,25 @@ renderCurrentChannelDisplay st tId hs = header <=> hBorder <=> messages
     messages = padTop Max chatText
 
     chatText =
-        case mcId of
+        case mch of
             Nothing -> fill ' '
-            Just cId ->
+            Just h ->
                 case st^.csTeam(tId).tsMode of
                 MessageSelect ->
                     freezeBorders $
-                    renderMessagesWithSelect cId (st^.csTeam(tId).tsMessageSelect) (channelMessages cId)
+                    renderMessagesWithSelect h (st^.csTeam(tId).tsMessageSelect) (channelMessages h)
                 MessageSelectDeleteConfirm ->
                     freezeBorders $
-                    renderMessagesWithSelect cId (st^.csTeam(tId).tsMessageSelect) (channelMessages cId)
+                    renderMessagesWithSelect h (st^.csTeam(tId).tsMessageSelect) (channelMessages h)
                 _ ->
-                    cached (ChannelMessages cId) $
+                    cached (ChannelMessages h) $
                     freezeBorders $
-                    renderLastMessages st hs (getEditedMessageCutoff cId st) $
+                    renderLastMessages st hs (getEditedMessageCutoff h st) $
                     retrogradeMsgsWithThreadStates $
                     reverseMessages $
-                    channelMessages cId
+                    channelMessages h
 
-    renderMessagesWithSelect cId (MessageSelectState selMsgId) msgs =
+    renderMessagesWithSelect h (MessageSelectState selMsgId) msgs =
         -- In this case, we want to fill the message list with messages
         -- but use the post ID as a cursor. To do this efficiently we
         -- only want to render enough messages to fill the screen.
@@ -442,18 +441,18 @@ renderCurrentChannelDisplay st tId hs = header <=> hBorder <=> messages
             msgsWithStates = chronologicalMsgsWithThreadStates msgs
         in case s of
              Nothing ->
-                 renderLastMessages st hs (getEditedMessageCutoff cId st) before
+                 renderLastMessages st hs (getEditedMessageCutoff h st) before
              Just m ->
                  unsafeRenderMessageSelection (m, (before, after)) (renderSingleMessage st hs Nothing)
 
-    channelMessages cId =
+    channelMessages h =
         -- If the channel is empty, add an informative message to the
         -- message listing to make it explicit that this channel does
         -- not yet have any messages.
-        let cutoff = getNewMessageCutoff cId st
-            messageListing = getMessageListing cId st
+        let cutoff = getNewMessageCutoff h st
+            messageListing = getMessageListing h st
         in if F.null messageListing
-           then addMessage (emptyChannelFillerMessage st cId) emptyDirSeq
+           then addMessage (emptyChannelFillerMessage st h) emptyDirSeq
            else insertTransitions messageListing
                                   cutoff
                                   (getDateFormat st)
@@ -461,8 +460,8 @@ renderCurrentChannelDisplay st tId hs = header <=> hBorder <=> messages
 
 -- | Construct a single message to be displayed in the specified channel
 -- when it does not yet have any user messages posted to it.
-emptyChannelFillerMessage :: ChatState -> ChannelId -> Message
-emptyChannelFillerMessage st cId =
+emptyChannelFillerMessage :: ChatState -> ChannelHandle -> Message
+emptyChannelFillerMessage st h =
     newMessageOfType msg (C Informative) ts
     where
         -- This is a bogus timestamp, but its value does not matter
@@ -471,7 +470,7 @@ emptyChannelFillerMessage st cId =
         -- otherwise include this bogus date) or other messages (which
         -- would make for a broken message sorting).
         ts = ServerTime $ UTCTime (toEnum 0) 0
-        chan = fromJust $ findChannelById cId (st^.csChannels)
+        chan = fromJust $ findChannelByHandle h (st^.csChannels)
         chanName = mkChannelName st (chan^.ccInfo)
         msg = case chan^.ccInfo.cdType of
             Direct ->
@@ -488,9 +487,9 @@ emptyChannelFillerMessage st cId =
         groupMsg us = "There are not yet any direct messages in the group " <> us <> "."
         chanMsg cn = "There are not yet any messages in the " <> cn <> " channel."
 
-getMessageListing :: ChannelId -> ChatState -> Messages
-getMessageListing cId st =
-    st ^?! csChannels.folding (findChannelById cId) . ccContents . cdMessages . to (filterMessages isShown)
+getMessageListing :: ChannelHandle -> ChatState -> Messages
+getMessageListing h st =
+    st ^?! csChannels.folding (findChannelByHandle h) . ccContents . cdMessages . to (filterMessages isShown)
     where isShown m
             | st^.csResources.crUserPreferences.userPrefShowJoinLeave = True
             | otherwise = not $ isJoinLeave m
@@ -862,10 +861,10 @@ mainInterface st mtId =
                      ]
 
     showTypingUsers tId hs =
-        case st^.csCurrentChannelId(tId) of
+        case st^.csCurrentChannelHandle(tId) of
             Nothing -> emptyWidget
-            Just cId ->
-                case st^?csChannel(cId) of
+            Just h ->
+                case st^?csChannel(h) of
                     Nothing -> emptyWidget
                     Just chan ->
                         let format = renderText' Nothing (myUsername st) hs Nothing

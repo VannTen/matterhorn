@@ -54,7 +54,6 @@ import           Network.Mattermost.Types
 import           Matterhorn.FilePaths ( xdgName )
 import           Matterhorn.State.Async
 import           Matterhorn.Types
-import           Matterhorn.Types.Common
 
 
 -- * Client Messages
@@ -128,13 +127,13 @@ updatePostMap mTId postCollection = do
 addClientMessage :: ClientMessage -> MH ()
 addClientMessage msg = do
     withCurrentTeam $ \tId -> do
-        withCurrentChannel tId $ \cid _ -> do
+        withCurrentChannel tId $ \h _ -> do
             uuid <- generateUUID
             let addCMsg = ccContents.cdMessages %~
                     (addMessage $ clientMessageToMessage msg & mMessageId .~ Just (MessageUUID uuid))
-            csChannels %= modifyChannelById cid addCMsg
+            csChannels %= modifyChannelByHandle h addCMsg
 
-            mh $ invalidateCacheEntry $ ChannelMessages cid
+            mh $ invalidateCacheEntry $ ChannelMessages h
             mh $ invalidateCacheEntry $ ChannelSidebar tId
 
             let msgTy = case msg^.cmType of
@@ -160,14 +159,14 @@ postErrorMessageIO err st = do
   case st^.csCurrentTeamId of
       Nothing -> return st
       Just tId -> do
-          case st^.csCurrentChannelId(tId) of
+          case st^.csCurrentChannelHandle(tId) of
               Nothing -> return st
-              Just cId -> do
+              Just h -> do
                   msg <- newClientMessage Error err
                   uuid <- generateUUID_IO
                   let addEMsg = ccContents.cdMessages %~
                           (addMessage $ clientMessageToMessage msg & mMessageId .~ Just (MessageUUID uuid))
-                  return $ st & csChannels %~ modifyChannelById cId addEMsg
+                  return $ st & csChannels %~ modifyChannelByHandle h addEMsg
 
 openFilePath :: FilePath -> MH ()
 openFilePath path = openWithOpener (return $ Right path)

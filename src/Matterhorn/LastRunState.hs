@@ -64,7 +64,10 @@ toLastRunState cs tId =
     LastRunState { _lrsHost              = cs^.csResources.crConn.cdHostnameL
                  , _lrsPort              = cs^.csResources.crConn.cdPortL
                  , _lrsUserId            = myUserId cs
-                 , _lrsSelectedChannelId = cs^.csCurrentChannelId(tId)
+                 , _lrsSelectedChannelId = do
+                     h <- cs^.csCurrentChannelHandle(tId)
+                     case h of
+                         ServerChannel cId -> return cId
                  }
 
 lastRunStateFileMode :: P.FileMode
@@ -79,9 +82,9 @@ writeLastRunStates cs =
 
 writeLastRunState :: ChatState -> TeamId -> IO ()
 writeLastRunState cs tId =
-    case cs^.csCurrentChannelId(tId) of
+    case cs^.csCurrentChannelHandle(tId) of
         Nothing -> return ()
-        Just cId -> case cs^?csChannel(cId) of
+        Just h -> case cs^?csChannel(h) of
             Nothing -> return ()
             Just chan ->
                 when (chan^.ccInfo.cdType `elem` [Ordinary, Private]) $ do

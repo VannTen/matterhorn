@@ -34,7 +34,7 @@ import           Matterhorn.Types
 -- current channel.
 enterChannelMembersUserList :: TeamId -> MH ()
 enterChannelMembersUserList myTId = do
-    withCurrentChannel myTId $ \cId _ -> do
+    withCurrentServerChannel myTId $ \cId _ -> do
         myId <- gets myUserId
         session <- getSession
 
@@ -52,7 +52,7 @@ enterChannelMembersUserList myTId = do
 -- channel.
 enterChannelInviteUserList :: TeamId -> MH ()
 enterChannelInviteUserList myTId = do
-    withCurrentChannel myTId $ \cId _ -> do
+    withCurrentServerChannel myTId $ \cId _ -> do
         myId <- gets myUserId
         enterUserListMode myTId (ChannelNonMembers cId myTId) Nothing
           (\u -> case u^.uiId /= myId of

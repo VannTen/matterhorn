@@ -49,7 +49,7 @@ import qualified System.IO.Temp as Sys
 import qualified System.Process as Sys
 import           Text.Aspell ( AspellResponse(..), mistakeWord, askAspell )
 
-import           Network.Mattermost.Types ( Post(..), ChannelId, TeamId )
+import           Network.Mattermost.Types ( Post(..), TeamId )
 
 import           Matterhorn.Config
 import {-# SOURCE #-} Matterhorn.Command ( dispatchCommand )
@@ -60,7 +60,6 @@ import           Matterhorn.State.Autocomplete
 import           Matterhorn.State.Attachments
 import           Matterhorn.State.Messages
 import           Matterhorn.Types hiding ( newState )
-import           Matterhorn.Types.Common ( sanitizeUserText' )
 
 
 startMultilineEditing :: TeamId -> MH ()
@@ -218,15 +217,15 @@ getEditorContent tId = do
 -- *source* of the text, so it also takes care of clearing the editor,
 -- resetting the edit mode, updating the input history for the specified
 -- channel, etc.
-handleInputSubmission :: TeamId -> ChannelId -> Text -> MH ()
-handleInputSubmission tId cId content = do
+handleInputSubmission :: TeamId -> ChannelHandle -> Text -> MH ()
+handleInputSubmission tId h content = do
     -- We clean up before dispatching the command or sending the message
     -- since otherwise the command could change the state and then doing
     -- cleanup afterwards could clean up the wrong things.
     csTeam(tId).tsEditState.cedEditor %= applyEdit Z.clearZipper
     csTeam(tId).tsEditState.cedEphemeral.eesInputHistoryPosition .= Nothing
 
-    csInputHistory %= addHistoryEntry content cId
+    csInputHistory %= addHistoryEntry content h
 
     case T.uncons content of
       Just ('/', cmd) ->
@@ -234,7 +233,10 @@ handleInputSubmission tId cId content = do
       _ -> do
           attachments <- use (csTeam(tId).tsEditState.cedAttachmentList.L.listElementsL)
           mode <- use (csTeam(tId).tsEditState.cedEditMode)
-          sendMessage cId mode content $ F.toList attachments
+
+          case h of
+              ServerChannel cId ->
+                  sendMessage cId mode content $ F.toList attachments
 
           -- Empty the attachment list only if a mesage is actually sent, since
           -- it's possible to /attach a file before actually sending the
@@ -378,7 +380,7 @@ handleEditingInput tId e = do
 -- action silently.
 sendUserTypingAction :: TeamId -> MH ()
 sendUserTypingAction tId = do
-    withCurrentChannel tId $ \cId _ -> do
+    withCurrentServerChannel tId $ \cId _ -> do
         st <- use id
         when (configShowTypingIndicator (st^.csResources.crConfiguration)) $
           case st^.csConnectionStatus of

@@ -28,10 +28,10 @@ module Matterhorn.Types.Channels
   -- * Creating ClientChannel objects
   , makeClientChannel
   -- * Managing ClientChannel collections
-  , noChannels, addChannel, removeChannel, findChannelById, modifyChannelById
-  , channelByIdL, maybeChannelByIdL
+  , noChannels, addChannel, removeChannel, findChannelByHandle, modifyChannelByHandle
+  , channelByHandleL, maybeChannelByHandleL
   , allTeamIds
-  , filteredChannelIds
+  , filteredChannelHandles
   , filteredChannels
   -- * Creating ChannelInfo objects
   , channelInfoFromChannelWithData
@@ -286,7 +286,7 @@ canLeaveChannel cInfo = not $ cInfo^.cdType `elem` [Direct]
 -- ** Manage the collection of all Channels
 
 data ChannelCollection a =
-    ChannelCollection { _chanMap :: HashMap ChannelId a
+    ChannelCollection { _chanMap :: HashMap ChannelHandle a
                       , _channelNameSet :: HashMap TeamId (S.Set Text)
                       , _userChannelMap :: HashMap UserId ChannelId
                       }
@@ -312,9 +312,9 @@ noChannels =
                       }
 
 -- | Add a channel to the existing collection.
-addChannel :: ChannelId -> ClientChannel -> ClientChannels -> ClientChannels
-addChannel cId cinfo =
-    (chanMap %~ HM.insert cId cinfo) .
+addChannel :: ChannelHandle -> ClientChannel -> ClientChannels -> ClientChannels
+addChannel h cinfo =
+    (chanMap %~ HM.insert h cinfo) .
     (if cinfo^.ccInfo.cdType `notElem` [Direct, Group]
      then case cinfo^.ccInfo.cdTeamId of
          Nothing -> id
@@ -322,21 +322,25 @@ addChannel cId cinfo =
      else id) .
     (case cinfo^.ccInfo.cdDMUserId of
          Nothing -> id
-         Just uId -> userChannelMap %~ HM.insert uId cId
+         Just uId ->
+             case h of
+                 ServerChannel cId -> userChannelMap %~ HM.insert uId cId
     )
 
 -- | Remove a channel from the collection.
-removeChannel :: ChannelId -> ClientChannels -> ClientChannels
-removeChannel cId cs =
-    let mChan = findChannelById cId cs
+removeChannel :: ChannelHandle -> ClientChannels -> ClientChannels
+removeChannel h cs =
+    let mChan = findChannelByHandle h cs
         removeChannelName = case mChan of
             Nothing -> id
             Just ch -> case ch^.ccInfo.cdTeamId of
                 Nothing -> id
                 Just tId -> channelNameSet %~ HM.adjust (S.delete (ch^.ccInfo.cdName)) tId
-    in cs & chanMap %~ HM.delete cId
+    in cs & chanMap %~ HM.delete h
           & removeChannelName
-          & userChannelMap %~ HM.filter (/= cId)
+          & userChannelMap %~ (case h of
+              ServerChannel cId -> HM.filter (/= cId)
+              )
 
 instance Semigroup (ChannelCollection ClientChannel) where
     a <> b =
@@ -356,28 +360,28 @@ allDmChannelMappings :: ClientChannels -> [(UserId, ChannelId)]
 allDmChannelMappings = HM.toList . _userChannelMap
 
 -- | Get the ChannelInfo information given the ChannelId
-findChannelById :: ChannelId -> ClientChannels -> Maybe ClientChannel
-findChannelById cId = HM.lookup cId . _chanMap
+findChannelByHandle :: ChannelHandle -> ClientChannels -> Maybe ClientChannel
+findChannelByHandle h = HM.lookup h . _chanMap
 
 -- | Transform the specified channel in place with provided function.
-modifyChannelById :: ChannelId -> (ClientChannel -> ClientChannel)
-                  -> ClientChannels -> ClientChannels
-modifyChannelById cId f = chanMap.ix(cId) %~ f
+modifyChannelByHandle :: ChannelHandle -> (ClientChannel -> ClientChannel)
+                      -> ClientChannels -> ClientChannels
+modifyChannelByHandle h f = chanMap.ix(h) %~ f
 
 -- | A 'Traversal' that will give us the 'ClientChannel' in a
 -- 'ClientChannels' structure if it exists
-channelByIdL :: ChannelId -> Traversal' ClientChannels ClientChannel
-channelByIdL cId = chanMap . ix cId
+channelByHandleL :: ChannelHandle -> Traversal' ClientChannels ClientChannel
+channelByHandleL h = chanMap . ix h
 
 -- | A 'Lens' that will give us the 'ClientChannel' in a
 -- 'ClientChannels' wrapped in a 'Maybe'
-maybeChannelByIdL :: ChannelId -> Lens' ClientChannels (Maybe ClientChannel)
-maybeChannelByIdL cId = chanMap . at cId
+maybeChannelByHandleL :: ChannelHandle -> Lens' ClientChannels (Maybe ClientChannel)
+maybeChannelByHandleL h = chanMap . at h
 
 -- | Apply a filter to each ClientChannel and return a list of the
--- ChannelId values for which the filter matched.
-filteredChannelIds :: (ClientChannel -> Bool) -> ClientChannels -> [ChannelId]
-filteredChannelIds f cc = fst <$> filter (f . snd) (HM.toList (cc^.chanMap))
+-- handles for which the filter matched.
+filteredChannelHandles :: (ClientChannel -> Bool) -> ClientChannels -> [ChannelHandle]
+filteredChannelHandles f cc = fst <$> filter (f . snd) (HM.toList (cc^.chanMap))
 
 -- | Get all the team IDs in the channel collection.
 allTeamIds :: ClientChannels -> [TeamId]
@@ -385,8 +389,8 @@ allTeamIds cc = HM.keys $ cc^.channelNameSet
 
 -- | Filter the ClientChannel collection, keeping only those for which
 -- the provided filter test function returns True.
-filteredChannels :: ((ChannelId, ClientChannel) -> Bool)
-                 -> ClientChannels -> [(ChannelId, ClientChannel)]
+filteredChannels :: ((ChannelHandle, ClientChannel) -> Bool)
+                 -> ClientChannels -> [(ChannelHandle, ClientChannel)]
 filteredChannels f cc = filter f $ cc^.chanMap.to HM.toList
 
 ------------------------------------------------------------------------

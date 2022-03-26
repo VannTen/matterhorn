@@ -28,9 +28,10 @@ import           Matterhorn.Types
 
 enterChannelListOverlayMode :: TeamId -> MH ()
 enterChannelListOverlayMode tId = do
-    myChannels <- use (csChannels.to (filteredChannelIds (const True)))
+    myChannelHandles <- use (csChannels.to (filteredChannelHandles (const True)))
+    let myChannelIds = catMaybes $ channelHandleChannelId <$> myChannelHandles
     enterListOverlayMode tId (csTeam(tId).tsChannelListOverlay) ChannelListOverlay
-        AllChannels (enterHandler tId) (fetchResults tId myChannels)
+        AllChannels (enterHandler tId) (fetchResults tId myChannelIds)
 
 enterHandler :: TeamId -> Channel -> MH Bool
 enterHandler tId chan = do

@@ -34,7 +34,6 @@ import           Matterhorn.Draw.Util
 import           Matterhorn.State.Channels
 import           Matterhorn.Themes
 import           Matterhorn.Types
-import           Matterhorn.Types.Common ( sanitizeUserText )
 import qualified Matterhorn.Zipper as Z
 
 -- | Internal record describing each channel entry and its associated
@@ -86,7 +85,7 @@ renderChannelList st tId =
             ChannelListLeft -> (OnLeft, padLeft (Pad 1))
             ChannelListRight -> (OnRight, padRight (Pad 1))
         myUsername_ = myUsername st
-        channelName e = ClickableChannelListEntry $ channelListEntryChannelId e
+        channelName e = ClickableChannelListEntry $ channelListEntryChannelHandle e
         renderEntry s e = clickable (channelName e) $
                           renderChannelListEntry tId myUsername_ $ mkChannelEntryData s tId e
         header = renderChannelListHeader st tId
@@ -159,12 +158,12 @@ mkChannelEntryData st tId e =
                          , entryUserStatus  = status
                          }
     where
-        cId = channelListEntryChannelId e
+        h = channelListEntryChannelHandle e
         unread = channelListEntryUnread e
-        chan = fromJust $ findChannelById cId (st^.csChannels)
-        recent = isRecentChannel st tId cId
-        ret = isReturnChannel st tId cId
-        current = isCurrentChannel st tId cId
+        chan = fromJust $ findChannelByHandle h (st^.csChannels)
+        recent = isRecentChannel st tId h
+        ret = isReturnChannel st tId h
+        current = isCurrentChannel st tId h
         muted = channelListEntryMuted e
         (name, normalSigil, addSpace, status) = case channelListEntryType e of
             CLChannel ->

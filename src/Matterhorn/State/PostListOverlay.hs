@@ -78,7 +78,7 @@ enterFlaggedPostListMode tId = do
 -- the current channel.
 enterPinnedPostListMode :: TeamId -> MH ()
 enterPinnedPostListMode tId =
-    withCurrentChannel tId $ \cId _ -> do
+    withCurrentServerChannel tId $ \cId _ -> do
         createPostList tId (PostListPinned cId) $ mmGetChannelPinnedPosts cId
 
 -- | Create a PostListOverlay with post search result messages from the

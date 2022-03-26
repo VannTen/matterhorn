@@ -1,6 +1,10 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module Matterhorn.Types.Common
-  ( sanitizeUserText
+  ( ChannelHandle(..)
+  , channelHandleChannelId
+  , sanitizeUserText
   , sanitizeUserText'
   , userIdForDMChannel
   )
@@ -11,8 +15,17 @@ import Matterhorn.Prelude
 
 import qualified Data.Text as T
 import Data.Char ( isPrint )
+import           Data.Hashable ( Hashable )
+import           GHC.Generics ( Generic )
 
-import Network.Mattermost.Types ( UserText, unsafeUserText, UserId(..), Id(..) )
+import Network.Mattermost.Types ( UserText, unsafeUserText, UserId(..), Id(..), ChannelId )
+
+data ChannelHandle =
+    ServerChannel ChannelId
+    deriving (Eq, Read, Show, Ord, Generic, Hashable)
+
+channelHandleChannelId :: ChannelHandle -> Maybe ChannelId
+channelHandleChannelId (ServerChannel cId) = Just cId
 
 sanitizeUserText :: UserText -> T.Text
 sanitizeUserText = sanitizeUserText' . unsafeUserText

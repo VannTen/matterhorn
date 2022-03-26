@@ -44,7 +44,7 @@ drawPostsBox contents st tId =
         contentHeader = withAttr channelListHeaderAttr $ txt $ case contents of
           PostListFlagged -> "Flagged posts"
           PostListPinned cId ->
-              let cName = case findChannelById cId (st^.csChannels) of
+              let cName = case findChannelByHandle (ServerChannel cId) (st^.csChannels) of
                       Nothing -> "<UNKNOWN>"
                       Just cc -> mkChannelName st (cc^.ccInfo)
               in "Posts pinned in " <> cName
@@ -60,7 +60,7 @@ drawPostsBox contents st tId =
 
         knownChannel msg =
             case msg^.mChannelId of
-                Just cId | Nothing <- st^?csChannels.channelByIdL(cId) -> False
+                Just cId | Nothing <- st^?csChannels.channelByHandleL(ServerChannel cId) -> False
                 _ -> True
 
         -- The overall contents, with a sensible default even if there
@@ -86,7 +86,7 @@ drawPostsBox contents st tId =
             -- We should factor out some of the channel name logic at
             -- some point, but we can do that later
             Just post
-              | Just chan <- st^?csChannels.channelByIdL(post^.postChannelIdL) ->
+              | Just chan <- st^?csChannels.channelByHandleL(ServerChannel $ post^.postChannelIdL) ->
                  case chan^.ccInfo.cdType of
                   Direct
                     | Just u <- flip userById st =<< chan^.ccInfo.cdDMUserId ->

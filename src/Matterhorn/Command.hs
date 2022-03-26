@@ -122,7 +122,7 @@ commandList =
   , Cmd "hide" "Hide the current DM or group channel from the channel list"
     NoArg $ \ () -> do
         withCurrentTeam $ \tId ->
-            withCurrentChannel tId $ \cId _ -> do
+            withCurrentServerChannel tId $ \cId _ -> do
                 hideDMChannel cId
 
   , Cmd "reconnect" "Force a reconnection attempt to the server"
@@ -183,7 +183,7 @@ commandList =
             withFetchedUserMaybe (UserFetchByUsername name) $ \foundUser -> do
                 case foundUser of
                     Just user -> createOrFocusDMChannel tId user $ Just $ \cId -> do
-                        handleInputSubmission tId cId msg
+                        handleInputSubmission tId (ServerChannel cId) msg
                     Nothing -> mhError $ NoSuchUser name
 
   , Cmd "log-start" "Begin logging debug information to the specified path"
@@ -271,7 +271,7 @@ commandList =
   , Cmd "sh" "Run a prewritten shell script"
     (TokenArg "script" (LineArg "message")) $ \ (script, text) -> do
         withCurrentTeam $ \tId ->
-            withCurrentChannel tId $ \cId _ -> do
+            withCurrentServerChannel tId $ \cId _ -> do
                 findAndRunScript tId cId script text
 
   , Cmd "flags" "Open a window of your flagged posts" NoArg $ \ () -> do
@@ -321,7 +321,7 @@ displayUsernameAttribute name = do
 
 execMMCommand :: MM.TeamId -> Text -> Text -> MH ()
 execMMCommand tId name rest = do
-  withCurrentChannel tId $ \cId _ -> do
+  withCurrentServerChannel tId $ \cId _ -> do
       session  <- getSession
       em       <- use (csTeam(tId).tsEditState.cedEditMode)
       let mc = MM.MinCommand

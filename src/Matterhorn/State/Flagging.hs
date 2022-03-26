@@ -39,9 +39,10 @@ updateMessageFlag pId f = do
   msgMb <- use (csPostMap.at(pId))
   case msgMb of
     Just msg
-      | Just cId <- msg^.mChannelId -> withChannel cId $ \chan -> do
+      | Just cId <- msg^.mChannelId -> withServerChannel cId $ \chan -> do
       let isTargetMessage m = m^.mMessageId == Just (MessagePostId pId)
-      csChannel(cId).ccContents.cdMessages.traversed.filtered isTargetMessage.mFlagged .= f
+          h = ServerChannel cId
+      csChannel(h).ccContents.cdMessages.traversed.filtered isTargetMessage.mFlagged .= f
       csPostMap.ix(pId).mFlagged .= f
 
       let mTId = chan^.ccInfo.cdTeamId

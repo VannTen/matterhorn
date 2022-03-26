@@ -76,7 +76,7 @@ updateTeamSidebar tId = do
     -- Get the currently-focused channel ID so we can compare after the
     -- zipper is rebuilt
     cconfig <- use csClientConfig
-    oldCid <- use (csCurrentChannelId tId)
+    oldCh <- use (csCurrentChannelHandle tId)
 
     -- Update the zipper
     cs <- use csChannels
@@ -87,15 +87,15 @@ updateTeamSidebar tId = do
     config <- use (csResources.crConfiguration)
 
     let zl = mkChannelZipperList now config tId cconfig prefs hidden cs us
-        compareEntries mOld new = (channelListEntryChannelId <$> mOld) == Just (channelListEntryChannelId new)
+        compareEntries mOld new = (channelListEntryChannelHandle <$> mOld) == Just (channelListEntryChannelHandle new)
     csTeam(tId).tsFocus %= Z.updateListBy compareEntries zl
 
     -- If the zipper rebuild caused the current channel to change, such
     -- as when the previously-focused channel was removed, we need to
     -- call fetchVisibleIfNeeded on the newly-focused channel to ensure
     -- that it gets loaded.
-    newCid <- use (csCurrentChannelId tId)
-    when (newCid /= oldCid) $
+    newCh <- use (csCurrentChannelHandle tId)
+    when (newCh /= oldCh) $
         fetchVisibleIfNeeded tId
 
 toggleChannelListVisibility :: MH ()
@@ -105,7 +105,7 @@ toggleChannelListVisibility = do
 
 showChannelInSidebar :: ChannelId -> Bool -> MH ()
 showChannelInSidebar cId setPending = do
-    mChan <- preuse $ csChannel cId
+    mChan <- preuse $ csChannel $ ServerChannel cId
     me <- gets myUser
     prefs <- use (csResources.crUserPreferences)
     session <- getSession
@@ -131,7 +131,7 @@ showChannelInSidebar cId setPending = do
             -- the user's latest request over any pending/background
             -- task.
             now <- liftIO getCurrentTime
-            csChannel(cId).ccInfo.cdSidebarShowOverride .= Just now
+            csChannel(ServerChannel cId).ccInfo.cdSidebarShowOverride .= Just now
             updateSidebar (ch^.ccInfo.cdTeamId)
 
             case ch^.ccInfo.cdType of

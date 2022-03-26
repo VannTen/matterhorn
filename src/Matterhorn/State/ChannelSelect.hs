@@ -76,11 +76,11 @@ updateChannelSelectMatches tId = do
             then Nothing
             else (chanNameMatches e . displayName) uInfo
         matches e =
-            let cId = channelListEntryChannelId e
+            let h = channelListEntryChannelHandle e
             in case channelListEntryType e of
-                CLChannel    -> findChannelById cId (st^.csChannels) >>= chanMatches e
+                CLChannel    -> findChannelByHandle h (st^.csChannels) >>= chanMatches e
                 CLUserDM uId -> userById uId st >>= userMatches e
-                CLGroupDM    -> findChannelById cId (st^.csChannels) >>= groupChanMatches e
+                CLGroupDM    -> findChannelByHandle h (st^.csChannels) >>= groupChanMatches e
 
         preserveFocus Nothing _ = False
         preserveFocus (Just m) m2 = matchEntry m == matchEntry m2

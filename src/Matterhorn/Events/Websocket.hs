@@ -25,7 +25,6 @@ import           Matterhorn.State.Reactions
 import           Matterhorn.State.Teams
 import           Matterhorn.State.Users
 import           Matterhorn.Types
-import           Matterhorn.Types.Common
 
 
 foreachTeam :: (TeamId -> MH ()) -> MH ()
@@ -58,10 +57,10 @@ handleWebsocketEvent we = do
                     let wasMentioned = maybe False (Set.member myId) $ wepMentions (weData we)
                     addNewPostedMessage $ RecentPost p wasMentioned
                     mtId <- use csCurrentTeamId
-                    cId <- case mtId of
+                    h <- case mtId of
                         Nothing -> return Nothing
-                        Just tId -> use (csCurrentChannelId tId)
-                    when (Just (postChannelId p) /= cId) $
+                        Just tId -> use (csCurrentChannelHandle tId)
+                    when (Just (ServerChannel $ postChannelId p) /= h) $
                         showChannelInSidebar (p^.postChannelIdL) False
             | otherwise -> return ()
 
@@ -71,10 +70,10 @@ handleWebsocketEvent we = do
 
                 currTid <- use csCurrentTeamId
                 foreachTeam $ \tId -> do
-                    cId <- use (csCurrentChannelId tId)
-                    when (Just (postChannelId p) == cId && Just tId == currTid) $
+                    h <- use (csCurrentChannelHandle tId)
+                    when (Just (ServerChannel $ postChannelId p) == h && Just tId == currTid) $
                         updateViewed False
-                    when (Just (postChannelId p) /= cId) $
+                    when (Just (ServerChannel $ postChannelId p) /= h) $
                         showChannelInSidebar (p^.postChannelIdL) False
             | otherwise -> return ()
 
@@ -84,10 +83,10 @@ handleWebsocketEvent we = do
 
                 currTid <- use csCurrentTeamId
                 foreachTeam $ \tId -> do
-                    cId <- use (csCurrentChannelId tId)
-                    when (Just (postChannelId p) == cId && Just tId == currTid) $
+                    h <- use (csCurrentChannelHandle tId)
+                    when (Just (ServerChannel $ postChannelId p) == h && Just tId == currTid) $
                         updateViewed False
-                    when (Just (postChannelId p) /= cId) $
+                    when (Just (ServerChannel $ postChannelId p) /= h) $
                         showChannelInSidebar (p^.postChannelIdL) False
             | otherwise -> return ()
 
@@ -115,7 +114,7 @@ handleWebsocketEvent we = do
         WMUserRemoved
             | Just cId <- wepChannelId (weData we) ->
                 when (webUserId (weBroadcast we) == Just myId) $
-                    removeChannelFromState cId
+                    removeChannelFromState $ ServerChannel cId
             | otherwise -> return ()
 
         WMTyping
@@ -126,7 +125,7 @@ handleWebsocketEvent we = do
         WMChannelDeleted
             | Just cId <- wepChannelId (weData we) ->
                 when (inMyTeamOrDM (webTeamId (weBroadcast we))) $
-                    removeChannelFromState cId
+                    removeChannelFromState $ ServerChannel cId
             | otherwise -> return ()
 
         WMDirectAdded
@@ -171,7 +170,7 @@ handleWebsocketEvent we = do
 
         WMChannelUpdated
             | Just cId <- webChannelId $ weBroadcast we -> do
-                mChan <- preuse (csChannel(cId))
+                mChan <- preuse (csChannel(ServerChannel cId))
                 case mChan of
                     Just chan -> do
                         refreshChannelById cId
@@ -219,7 +218,7 @@ handleWebsocketEvent we = do
             | Just user <- wepUser (weData we) -> do
                 handleUserUpdated user
                 withCurrentTeam $ \tId ->
-                    withCurrentChannel tId $ \cId _ -> do
+                    withCurrentServerChannel tId $ \cId _ -> do
                         refreshChannelById cId
             | otherwise -> return ()
 

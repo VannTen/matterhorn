@@ -105,7 +105,7 @@ urlListMouseHandler _ =
 channelSelectMouseHandler :: TeamId -> BrickEvent Name MHEvent -> MH ()
 channelSelectMouseHandler tId (MouseDown (ChannelSelectEntry match) _ _ _) = do
     setMode tId Main
-    setFocus tId $ channelListEntryChannelId $ matchEntry match
+    setFocus tId $ channelListEntryChannelHandle $ matchEntry match
 channelSelectMouseHandler _ _ =
     return ()
 

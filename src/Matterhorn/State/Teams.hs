@@ -194,7 +194,7 @@ buildTeamState cr me team = do
     -- last channel, we don't have to consider other cases here:
     chanPairs <- forM (toList chans) $ \c -> do
         cChannel <- makeClientChannel (userId me) c
-        return (getId c, cChannel)
+        return (ServerChannel $ getId c, cChannel)
 
     -- Start the spell checker and spell check timer, if configured
     spResult <- maybeStartSpellChecker tId (cr^.crConfiguration) (cr^.crEventQueue)

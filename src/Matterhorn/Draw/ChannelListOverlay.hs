@@ -15,7 +15,6 @@ import           Network.Mattermost.Lenses
 
 import           Matterhorn.Draw.ListOverlay ( drawListOverlay, OverlayPosition(..) )
 import           Matterhorn.Types
-import           Matterhorn.Types.Common ( sanitizeUserText )
 import           Matterhorn.Themes
 
 

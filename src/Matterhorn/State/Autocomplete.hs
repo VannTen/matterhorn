@@ -259,10 +259,13 @@ doUserAutoCompletion :: TeamId -> AutocompletionType -> AutocompleteContext -> T
 doUserAutoCompletion tId ty ctx searchString = do
     session <- getSession
     myUid <- gets myUserId
-    withCurrentChannel tId $ \cId _ -> do
+    withCurrentChannel tId $ \h _ -> do
         withCachedAutocompleteResults tId ctx ty searchString $
             doAsyncWith Preempt $ do
-                ac <- MM.mmAutocompleteUsers (Just tId) (Just cId) searchString session
+                let mCid = case h of
+                        ServerChannel cId -> Just cId
+
+                ac <- MM.mmAutocompleteUsers (Just tId) mCid searchString session
 
                 let active = Seq.filter (\u -> userId u /= myUid && (not $ userDeleted u))
                     alts = F.toList $
@@ -290,7 +293,7 @@ doChannelAutoCompletion tId ty ctx searchString = do
             let alts = F.toList $ (ChannelCompletion True <$> inChannels) <>
                                   (ChannelCompletion False <$> notInChannels)
                 (inChannels, notInChannels) = Seq.partition isMember results
-                isMember c = isJust $ findChannelById (channelId c) cs
+                isMember c = isJust $ findChannelByHandle (ServerChannel $ channelId c) cs
             return $ Just $ setCompletionAlternatives tId ctx searchString alts ty
 
 -- Utility functions

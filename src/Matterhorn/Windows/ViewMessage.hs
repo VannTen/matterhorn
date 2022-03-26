@@ -95,8 +95,8 @@ getLatestMessage cs tId m =
     case m^.mMessageId of
         Nothing -> Just m
         Just mId -> do
-            cId <- cs^.csCurrentChannelId(tId)
-            chan <- cs^?csChannel(cId)
+            h <- cs^.csCurrentChannelHandle(tId)
+            chan <- cs^?csChannel(h)
             findMessage mId $ chan^.ccContents.cdMessages
 
 handleEvent :: TeamId -> ViewMessageWindowTab -> Vty.Event -> MH ()
